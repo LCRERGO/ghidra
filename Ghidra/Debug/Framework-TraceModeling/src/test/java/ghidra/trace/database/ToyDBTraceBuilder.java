@@ -49,7 +49,6 @@ import ghidra.trace.database.language.DBTraceGuestLanguage;
 import ghidra.trace.database.listing.*;
 import ghidra.trace.database.memory.DBTraceMemoryManager;
 import ghidra.trace.database.symbol.DBTraceReference;
-import ghidra.trace.database.thread.DBTraceThread;
 import ghidra.trace.database.thread.DBTraceThreadManager;
 import ghidra.trace.model.*;
 import ghidra.trace.model.language.TraceGuestLanguage;
@@ -86,9 +85,9 @@ public class ToyDBTraceBuilder implements AutoCloseable {
 
 	public void exec(long snap, int frame, TraceThread thread, List<String> sleigh) {
 		PcodeProgram program = SleighProgramCompiler.compileProgram((SleighLanguage) language,
-			"builder", sleigh, SleighUseropLibrary.nil());
+			"builder", sleigh, PcodeUseropLibrary.nil());
 		TraceSleighUtils.buildByteExecutor(trace, snap, thread, frame)
-				.execute(program, SleighUseropLibrary.nil());
+				.execute(program, PcodeUseropLibrary.nil());
 	}
 
 	public Address addr(AddressSpace space, long offset) {
@@ -216,7 +215,7 @@ public class ToyDBTraceBuilder implements AutoCloseable {
 			String typeName, String category, String comment) throws DuplicateNameException {
 		Register register = language.getRegister(registerName);
 		assertNotNull(register);
-		DBTraceThread thread = getOrAddThread(threadName, snap);
+		TraceThread thread = getOrAddThread(threadName, snap);
 		DBTraceBookmarkType type = getOrAddBookmarkType(typeName);
 		DBTraceBookmarkManager manager = trace.getBookmarkManager();
 		DBTraceBookmarkRegisterSpace space = manager.getBookmarkRegisterSpace(thread, true);
@@ -282,14 +281,14 @@ public class ToyDBTraceBuilder implements AutoCloseable {
 		return instruction;
 	}
 
-	public DBTraceThread getOrAddThread(String name, long creationSnap)
+	public TraceThread getOrAddThread(String name, long creationSnap)
 			throws DuplicateNameException {
 		DBTraceThreadManager manager = trace.getThreadManager();
-		Collection<? extends DBTraceThread> threads = manager.getThreadsByPath(name);
+		Collection<? extends TraceThread> threads = manager.getThreadsByPath(name);
 		if (threads != null && !threads.isEmpty()) {
 			return threads.iterator().next();
 		}
-		return (DBTraceThread) manager.createThread(name, creationSnap);
+		return manager.createThread(name, creationSnap);
 	}
 
 	public DBTraceReference addMemoryReference(long creationSnap, Address from, Address to) {
@@ -304,9 +303,9 @@ public class ToyDBTraceBuilder implements AutoCloseable {
 	}
 
 	public DBTraceReference addOffsetReference(long creationSnap, Address from, Address to,
-			long offset) {
+			boolean toAddrIsBase, long offset) {
 		return trace.getReferenceManager()
-				.addOffsetReference(Range.atLeast(creationSnap), from, to,
+				.addOffsetReference(Range.atLeast(creationSnap), from, to, toAddrIsBase,
 					offset, RefType.DATA, SourceType.DEFAULT, -1);
 	}
 
@@ -338,7 +337,9 @@ public class ToyDBTraceBuilder implements AutoCloseable {
 
 	@Override
 	public void close() {
-		trace.release(this);
+		if (trace.getConsumerList().contains(this)) {
+			trace.release(this);
+		}
 	}
 
 	public Language getLanguage(String id) throws LanguageNotFoundException {

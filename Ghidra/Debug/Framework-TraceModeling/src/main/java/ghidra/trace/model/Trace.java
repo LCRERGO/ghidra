@@ -41,6 +41,7 @@ import ghidra.trace.model.program.TraceVariableSnapProgramView;
 import ghidra.trace.model.stack.TraceStack;
 import ghidra.trace.model.stack.TraceStackManager;
 import ghidra.trace.model.symbol.*;
+import ghidra.trace.model.target.*;
 import ghidra.trace.model.thread.TraceThread;
 import ghidra.trace.model.thread.TraceThreadManager;
 import ghidra.trace.model.time.TraceSnapshot;
@@ -52,6 +53,51 @@ import resources.ResourceManager;
 
 public interface Trace extends DataTypeManagerDomainObject {
 	ImageIcon TRACE_ICON = ResourceManager.loadImage("images/video-x-generic16.png");
+
+	public static final class TraceObjectChangeType<T, U>
+			extends DefaultTraceChangeType<T, U> {
+		/**
+		 * An object was created, but not yet inserted.
+		 * 
+		 * <p>
+		 * Between the {@link #CREATED} event and the first {@link #LIFE_CHANGED} event, an object
+		 * is considered "incomplete," because it is likely missing its attributes. Thus, a trace
+		 * client must take care to ensure all attributes, especially fixed attributes, are added to
+		 * the object before it is inserted at its canonical path. Listeners may use
+		 * {@link TraceObject#getCanonicalParent(long)} to check if an object is complete for a
+		 * given snapshot.
+		 */
+		public static final TraceObjectChangeType<TraceObject, Void> CREATED =
+			new TraceObjectChangeType<>();
+		/**
+		 * An object's life changed.
+		 * 
+		 * <p>
+		 * One of its canonical parents was created, deleted, or had its lifespan change.
+		 */
+		public static final TraceObjectChangeType<TraceObject, Void> LIFE_CHANGED =
+			new TraceObjectChangeType<>();
+		/**
+		 * An object was deleted.
+		 */
+		public static final TraceObjectChangeType<TraceObject, Void> DELETED =
+			new TraceObjectChangeType<>();
+		/**
+		 * A value entry was created.
+		 */
+		public static final TraceObjectChangeType<TraceObjectValue, Void> VALUE_CREATED =
+			new TraceObjectChangeType<>();
+		/**
+		 * A value entry changed in lifespan.
+		 */
+		public static final TraceObjectChangeType<TraceObjectValue, Range<Long>> //
+		VALUE_LIFESPAN_CHANGED = new TraceObjectChangeType<>();
+		/**
+		 * A value entry was deleted.
+		 */
+		public static final TraceObjectChangeType<TraceObjectValue, Void> VALUE_DELETED =
+			new TraceObjectChangeType<>();
+	}
 
 	public static final class TraceBookmarkChangeType<T, U> extends DefaultTraceChangeType<T, U> {
 		public static final TraceBookmarkChangeType<TraceBookmarkType, Void> TYPE_ADDED =
@@ -265,7 +311,12 @@ public interface Trace extends DataTypeManagerDomainObject {
 	public static final class TraceStackChangeType<U>
 			extends DefaultTraceChangeType<TraceStack, U> {
 		public static final TraceStackChangeType<Void> ADDED = new TraceStackChangeType<>();
-		public static final TraceStackChangeType<Void> CHANGED = new TraceStackChangeType<>();
+		/**
+		 * NOTE: The "new value" is the (min) snap where the change occurred. For StackFrame, it's
+		 * Stack.getSnap(), for ObjectStackFrame, the min snap of the value entry. The "old value"
+		 * is always 0.
+		 */
+		public static final TraceStackChangeType<Long> CHANGED = new TraceStackChangeType<>();
 		public static final TraceStackChangeType<Void> DELETED = new TraceStackChangeType<>();
 	}
 
@@ -327,6 +378,10 @@ public interface Trace extends DataTypeManagerDomainObject {
 		public static final TraceSnapshotChangeType<Void> DELETED = new TraceSnapshotChangeType<>();
 	}
 
+	public interface TraceProgramViewListener {
+		void viewCreated(TraceProgramView view);
+	}
+
 	Language getBaseLanguage();
 
 	CompilerSpec getBaseCompilerSpec();
@@ -350,6 +405,8 @@ public interface Trace extends DataTypeManagerDomainObject {
 
 	TraceModuleManager getModuleManager();
 
+	TraceObjectManager getObjectManager();
+
 	TraceReferenceManager getReferenceManager();
 
 	TraceRegisterContextManager getRegisterContextManager();
@@ -369,6 +426,13 @@ public interface Trace extends DataTypeManagerDomainObject {
 	TraceVariableSnapProgramView createProgramView(long snap);
 
 	/**
+	 * Collect all program views, fixed or variable, of this trace.
+	 * 
+	 * @return the current set of program views
+	 */
+	Collection<TraceProgramView> getAllProgramViews();
+
+	/**
 	 * Get the "canonical" program view for this trace
 	 * 
 	 * <p>
@@ -378,6 +442,10 @@ public interface Trace extends DataTypeManagerDomainObject {
 	 * @return the canonical program view
 	 */
 	TraceVariableSnapProgramView getProgramView();
+
+	void addProgramViewListener(TraceProgramViewListener listener);
+
+	void removeProgramViewListener(TraceProgramViewListener listener);
 
 	LockHold lockRead();
 

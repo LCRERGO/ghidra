@@ -36,22 +36,28 @@ public class ObjectiveC2_Method extends ObjectiveC_Method {
 		isSmall = isSmallList;
 
 		if (isSmallList) {
-			int nameOffset = (int)ObjectiveC1_Utilities.readNextIndex(reader, true);
-			int namePtr = reader.readInt(_index + nameOffset);
-			long imagebase = state.program.getImageBase().getOffset(); // When we support dyld_shared_cache, this base will likely have to change
-			name = reader.readAsciiString(imagebase + namePtr);
+			int nameOffset = (int) ObjectiveC1_Utilities.readNextIndex(reader, true);
+			long namePtr;
+			if (state.is32bit) {
+				namePtr = reader.readInt(_index + nameOffset);
+			}
+			else {
+				namePtr = reader.readLong(_index + nameOffset);
+			}
 
-			int typesOffset = (int)ObjectiveC1_Utilities.readNextIndex(reader, true);
+			name = reader.readAsciiString(namePtr);
+
+			int typesOffset = (int) ObjectiveC1_Utilities.readNextIndex(reader, true);
 			types = reader.readAsciiString(_index + 4 + typesOffset);
 		}
 		else {
 			long nameIndex = ObjectiveC1_Utilities.readNextIndex(reader, state.is32bit);
-			name  = reader.readAsciiString(nameIndex);
+			name = reader.readAsciiString(nameIndex);
 
 			long typesIndex = ObjectiveC1_Utilities.readNextIndex(reader, state.is32bit);
 			types = reader.readAsciiString(typesIndex);
 		}
-		
+
 		imp = new ObjectiveC2_Implementation(state, reader, isSmallList);
 	}
 
@@ -59,28 +65,40 @@ public class ObjectiveC2_Method extends ObjectiveC_Method {
 	public String getName() {
 		return name;
 	}
+
 	@Override
 	public String getTypes() {
 		return types;
 	}
+
 	@Override
 	public long getImplementation() {
 		return imp.getImplementation();
 	}
 
+	@Override
 	public DataType toDataType() throws DuplicateNameException, IOException {
-		Structure struct = new StructureDataType("method_t", 0);
+		Structure struct = new StructureDataType("method" + (isSmall ? "_small" : "") + "_t", 0);
 		if (isSmall) {
-			DataType sdw = SignedDWordDataType.dataType;
 			String comment = "offset from this address";
-			struct.add(sdw, sdw.getLength(), "name", comment);
-			struct.add(sdw, sdw.getLength(), "types", comment);
-			struct.add(sdw, sdw.getLength(), "imp", comment);
+
+			PointerTypedef strPtrRefDt = new PointerTypedef(null, new PointerDataType(STRING), 4,
+				null, PointerType.RELATIVE);
+
+			PointerTypedef strRefDt =
+				new PointerTypedef(null, STRING, 4, null, PointerType.RELATIVE);
+
+			PointerTypedef voidRefDt =
+				new PointerTypedef(null, VOID, 4, null, PointerType.RELATIVE);
+
+			struct.add(strPtrRefDt, "name", comment);
+			struct.add(strRefDt, "types", comment);
+			struct.add(voidRefDt, "imp", comment);
 		}
 		else {
-			struct.add(new PointerDataType(STRING), _state.pointerSize, "name",  null);
+			struct.add(new PointerDataType(STRING), _state.pointerSize, "name", null);
 			struct.add(new PointerDataType(STRING), _state.pointerSize, "types", null);
-			struct.add(new PointerDataType(VOID),   _state.pointerSize, "imp",   null);
+			struct.add(new PointerDataType(VOID), _state.pointerSize, "imp", null);
 		}
 		struct.setCategoryPath(ObjectiveC2_Constants.CATEGORY_PATH);
 		return struct;

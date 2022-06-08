@@ -1178,9 +1178,16 @@ public class SymbolManager implements SymbolTable, ManagerDB {
 		if (ref == null) {
 			return null;
 		}
-		long symId = ref.getSymbolID();
-		if (symId >= 0) {
-			return getSymbol(symId);
+		if (ref.isMemoryReference()) {
+			long symId = ref.getSymbolID();
+			if (symId >= 0) {
+				Symbol s = getSymbol(symId);
+				// Ensure that referenced symbol exists and has an address which corresponds
+				// to ref's to-address. This will always be either a LABEL or FUNCTION.
+				if (s != null && ref.getToAddress().equals(s.getAddress())) {
+					return s;
+				}
+			}
 		}
 		if (!ref.isExternalReference()) {
 			// We check for variables first just in case ref refers to a memory parameter
@@ -1560,7 +1567,8 @@ public class SymbolManager implements SymbolTable, ManagerDB {
 			long parentId, SymbolType symType) {
 
 		// create a label history record
-		if (symType == SymbolType.LABEL || symType == SymbolType.FUNCTION) {
+		if (!symbol.isDynamic() &&
+			(symType == SymbolType.LABEL || symType == SymbolType.FUNCTION)) {
 			createLabelHistoryRecord(addr, null, name, LabelHistory.REMOVE);
 		}
 

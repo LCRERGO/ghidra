@@ -406,10 +406,12 @@ public class DbgManagerImpl implements DbgManager {
 		//TODO: server.terminate();
 		engThread.execute(100, dbgeng -> {
 			Msg.debug(this, "Disconnecting DebugClient from session");
-			dbgeng.endSession(DebugEndSessionFlags.DEBUG_END_DISCONNECT);
+			dbgeng.endSession(DebugEndSessionFlags.DEBUG_END_PASSIVE);
 			dbgeng.setOutputCallbacks(null);
+			dbgeng.setEventCallbacks(null);
+			dbgeng.setInputCallbacks(null);
+			engThread.shutdown();
 		});
-		engThread.shutdown();
 		try {
 			engThread.awaitTermination(5000, TimeUnit.MILLISECONDS);
 		}
@@ -941,6 +943,9 @@ public class DbgManagerImpl implements DbgManager {
 					if (status.threadState.equals(ExecutionState.RUNNING)) {
 						//System.err.println("RUNNING " + id);
 						dbgState = DbgState.RUNNING;
+						// NB: Needed by GADP variants, but not IN-VM
+						getEventListeners().fire.memoryChanged(currentProcess, 0L, 0,
+							evt.getCause());
 						processEvent(new DbgRunningEvent(eventThread.getId()));
 					}
 					if (!threads.containsValue(eventThread)) {
@@ -1481,11 +1486,13 @@ public class DbgManagerImpl implements DbgManager {
 
 	public CompletableFuture<Void> setActiveFrame(DbgThread thread, int index) {
 		currentThread = thread;
+		currentProcess = thread.getProcess();
 		return execute(new DbgSetActiveThreadCommand(this, thread, index));
 	}
 
 	public CompletableFuture<Void> setActiveThread(DbgThread thread) {
 		currentThread = thread;
+		currentProcess = thread.getProcess();
 		return execute(new DbgSetActiveThreadCommand(this, thread, null));
 	}
 
