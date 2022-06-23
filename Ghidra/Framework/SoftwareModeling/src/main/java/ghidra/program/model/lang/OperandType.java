@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -59,7 +58,7 @@ public final class OperandType {
 	public final static int DATA = 0x00000080;
 
 	/**
-	 * Bit set if the operand is a register.
+	 * Bit set if the operand is a port.
 	 */
 	public final static int PORT = 0x00000100;
 	/**
@@ -67,7 +66,7 @@ public final class OperandType {
 	 */
 	public final static int REGISTER = 0x00000200;
 	/**
-	 * Bit set if the operand is a register.
+	 * Bit set if the operand is a list.
 	 */
 	public final static int LIST = 0x00000400;
 	/**
@@ -341,6 +340,16 @@ public final class OperandType {
 	public static boolean isCoProcessor(int operandType) {
 		return (operandType & COP) != 0;
 	}
+	
+    /**
+	 * check the DYNAMIC flag.
+	 * @param operandType the bit field to examine.
+	 *
+	 * @return true if the DYNAMIC flag is set.
+	 */
+	public static boolean isDynamic(int operandType) {
+		return (operandType & DYNAMIC) != 0;
+	}
 
 	/**
 	 * check if both a scalar and an address
@@ -457,6 +466,10 @@ public final class OperandType {
 		if (isCoProcessor(operandType)) {
 			append(buf, "COP ");
 		}
+
+        if (isDynamic(operandType)) {
+            append(buf, "DYN ");
+        }
 
 		return buf.toString();
 	}
