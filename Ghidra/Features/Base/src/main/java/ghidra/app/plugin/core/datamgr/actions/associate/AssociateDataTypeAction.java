@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -30,6 +30,7 @@ import docking.action.MenuData;
 import docking.widgets.OptionDialog;
 import docking.widgets.combobox.GhidraComboBox;
 import docking.widgets.label.GLabel;
+import docking.widgets.list.GComboBoxCellRenderer;
 import docking.widgets.tree.GTreeNode;
 import ghidra.app.plugin.core.datamgr.DataTypeManagerPlugin;
 import ghidra.app.plugin.core.datamgr.DataTypesActionContext;
@@ -38,6 +39,7 @@ import ghidra.app.plugin.core.datamgr.tree.ArchiveNode;
 import ghidra.app.plugin.core.datamgr.tree.DataTypeNode;
 import ghidra.app.plugin.core.datamgr.util.DataTypeTreeCopyMoveTask;
 import ghidra.app.plugin.core.datamgr.util.DataTypeTreeCopyMoveTask.ActionType;
+import ghidra.app.plugin.core.datamgr.util.DataTypeUtils;
 import ghidra.program.model.data.*;
 import ghidra.util.Msg;
 import ghidra.util.layout.PairLayout;
@@ -85,26 +87,21 @@ public class AssociateDataTypeAction extends DockingAction {
 		return !nodes.isEmpty();
 	}
 
-	private boolean hasSingleModifiableSourceArchive(List<GTreeNode> nodes) {
+	private Archive getSingleDTArchive(List<GTreeNode> nodes) {
 
-		Archive sourceArchive = null;
+		Archive dtArchive = null;
 		for (GTreeNode node : nodes) {
 			Archive archive = findArchive(node);
-			if (sourceArchive == null) {
-				sourceArchive = archive;
+			if (dtArchive == null) {
+				dtArchive = archive;
 				continue;
 			}
 
-			if (sourceArchive != archive) {
-				return false;
+			if (dtArchive != archive) {
+				return null;
 			}
 		}
-
-		if (sourceArchive != null && sourceArchive.isModifiable()) {
-			return true;
-		}
-
-		return false;
+		return dtArchive;
 	}
 
 	private static Archive findArchive(GTreeNode node) {
@@ -134,10 +131,17 @@ public class AssociateDataTypeAction extends DockingAction {
 
 		List<GTreeNode> nodes = ((DataTypesActionContext) context).getSelectedNodes();
 
-		if (!hasSingleModifiableSourceArchive(nodes)) {
-			Msg.showInfo(this, getProviderComponent(), "Multiple Source Archives",
+		Archive dtArchive = getSingleDTArchive(nodes);
+		if (dtArchive == null) {
+			Msg.showInfo(this, getProviderComponent(), "Multiple Data Type Archives",
 				"The currently selected nodes are from multiple archives.\n" +
 					"Please select only nodes from a single archvie.");
+			return;
+		}
+
+		if (!dtArchive.isModifiable()) {
+			DataTypeUtils.showUnmodifiableArchiveErrorMessage(context.getSourceComponent(),
+				"Disassociate Failed", dtArchive.getDataTypeManager());
 			return;
 		}
 
@@ -200,15 +204,15 @@ public class AssociateDataTypeAction extends DockingAction {
 
 		private JComponent buildWorkPanel() {
 
-			archivesBox.setRenderer(new DefaultListCellRenderer() {
+			archivesBox.setRenderer(new GComboBoxCellRenderer<>() {
 
 				@Override
-				public Component getListCellRendererComponent(JList<?> list, Object value,
-						int index, boolean isSelected, boolean cellHasFocus) {
+				public Component getListCellRendererComponent(JList<? extends Archive> list,
+						Archive value, int index, boolean isSelected, boolean cellHasFocus) {
 
 					JLabel renderer = (JLabel) super.getListCellRendererComponent(list, value,
 						index, isSelected, cellHasFocus);
-					Archive a = (Archive) value;
+					Archive a = value;
 					renderer.setText(a.getName());
 					return renderer;
 				}
@@ -279,7 +283,8 @@ public class AssociateDataTypeAction extends DockingAction {
 			}
 
 			boolean noErrors = false;
-			int tx = dtm.startTransaction("Create Category");
+			String path = archive.getName() + categoryPath;
+			int tx = dtm.startTransaction("Create " + path);
 			try {
 				category = dtm.createCategory(categoryPath);
 				noErrors = true;

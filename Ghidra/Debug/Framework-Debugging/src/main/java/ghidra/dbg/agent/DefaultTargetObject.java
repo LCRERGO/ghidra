@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,6 +21,7 @@ import java.util.stream.Collectors;
 
 import ghidra.async.AsyncUtils;
 import ghidra.dbg.DebuggerObjectModel;
+import ghidra.dbg.DebuggerObjectModel.RefreshBehavior;
 import ghidra.dbg.target.TargetObject;
 import ghidra.dbg.target.schema.TargetObjectSchema;
 import ghidra.dbg.target.schema.TargetObjectSchema.ResyncMode;
@@ -34,7 +35,9 @@ import ghidra.util.Msg;
  * @see AbstractTargetObject
  * @param <E> the type of child elements
  * @param <P> the type of the parent
+ * @deprecated Will be removed in 11.3. Portions may be refactored into trace object database.
  */
+@Deprecated(forRemoval = true, since = "11.2")
 public class DefaultTargetObject<E extends TargetObject, P extends TargetObject>
 		extends AbstractTargetObject<P> {
 
@@ -131,34 +134,9 @@ public class DefaultTargetObject<E extends TargetObject, P extends TargetObject>
 			parent.getSchema().getChildSchema(key));
 	}
 
-	/**
-	 * Check if this object is being observed
-	 * 
-	 * <p>
-	 * TODO: It'd be nice if we could know what is being observed: attributes, elements, console
-	 * output, etc. In other words, the sub-types and overrides of the listeners.
-	 * 
-	 * <p>
-	 * Note, if an implementation chooses to cull requests because no one is listening, it should
-	 * take care to re-synchronize when a listener is added. The implementor will need to override
-	 * {@link #addListener(TargetObjectListener)}.
-	 * 
-	 * @implNote The recommended pattern on the client side for keeping a synchronized cache is to
-	 *           add a listener, and then retrieve the current elements. Thus, it is acceptable to
-	 *           neglect invoking the callback on the new listener during re-synchronization.
-	 *           However, more testing is needed to verify this doesn't cause problems when network
-	 *           messaging is involved.
-	 * 
-	 * @return true if there is at least one listener on this object
-	 * @deprecated Since the addition of model listeners, everything is always observed
-	 */
-	@Deprecated(forRemoval = true)
-	protected boolean isObserved() {
-		return !listeners.isEmpty();
-	}
-
 	@Override
-	public CompletableFuture<Void> resync(boolean refreshAttributes, boolean refreshElements) {
+	public CompletableFuture<Void> resync(RefreshBehavior refreshAttributes,
+			RefreshBehavior refreshElements) {
 		return CompletableFuture.allOf(fetchAttributes(refreshAttributes),
 			fetchElements(refreshElements));
 	}
@@ -183,12 +161,12 @@ public class DefaultTargetObject<E extends TargetObject, P extends TargetObject>
 	 * @param refresh true to invalidate all caches involved in handling this request
 	 * @return a future which completes when the cache has been updated
 	 */
-	protected CompletableFuture<Void> requestElements(boolean refresh) {
-		return AsyncUtils.NIL;
+	protected CompletableFuture<Void> requestElements(RefreshBehavior refresh) {
+		return AsyncUtils.nil();
 	}
 
-	private boolean shouldRequestElements(boolean refresh) {
-		if (refresh) {
+	private boolean shouldRequestElements(RefreshBehavior refresh) {
+		if (refresh.equals(RefreshBehavior.REFRESH_ALWAYS)) {
 			return true;
 		}
 		ResyncMode resync = getSchema().getElementResyncMode();
@@ -205,26 +183,27 @@ public class DefaultTargetObject<E extends TargetObject, P extends TargetObject>
 	 *           response, then complete with {@link #elementsView}.
 	 */
 	@Override
-	public CompletableFuture<? extends Map<String, ? extends E>> fetchElements(boolean refresh) {
+	public CompletableFuture<? extends Map<String, ? extends E>> fetchElements(
+			RefreshBehavior refresh) {
 		CompletableFuture<Void> req;
 		synchronized (elements) {
 			if (shouldRequestElements(refresh)) {
 				curElemsRequest = model.gateFuture(requestElements(refresh));
 			}
-			req = curElemsRequest == null ? AsyncUtils.NIL : curElemsRequest;
+			req = curElemsRequest == null ? AsyncUtils.nil() : curElemsRequest;
 		}
 		return req.thenApply(__ -> getCachedElements());
 	}
 
 	@Override
 	public CompletableFuture<? extends Map<String, ? extends E>> fetchElements() {
-		return fetchElements(false);
+		return fetchElements(RefreshBehavior.REFRESH_NEVER);
 	}
 
 	@Override
 	public Map<String, E> getCachedElements() {
 		synchronized (model.lock) {
-			return Map.copyOf(elements);
+			return elements == null ? Map.of() : Map.copyOf(elements);
 		}
 	}
 
@@ -303,7 +282,7 @@ public class DefaultTargetObject<E extends TargetObject, P extends TargetObject>
 			doInvalidateElements(delta.removed, reason);
 			if (!delta.isEmpty()) {
 				updateCallbackElements(delta);
-				listeners.fire.elementsChanged(getProxy(), delta.getKeysRemoved(), delta.added);
+				broadcast().elementsChanged(getProxy(), delta.getKeysRemoved(), delta.added);
 			}
 		}
 		return delta;
@@ -351,7 +330,7 @@ public class DefaultTargetObject<E extends TargetObject, P extends TargetObject>
 			doInvalidateElements(delta.removed, reason);
 			if (!delta.isEmpty()) {
 				updateCallbackElements(delta);
-				listeners.fire.elementsChanged(getProxy(), delta.getKeysRemoved(), delta.added);
+				broadcast().elementsChanged(getProxy(), delta.getKeysRemoved(), delta.added);
 			}
 		}
 		return delta;
@@ -366,17 +345,17 @@ public class DefaultTargetObject<E extends TargetObject, P extends TargetObject>
 	 * reason to believe the model is not keeping its attribute cache up to date.
 	 * 
 	 * <p>
-	 * This method otherwise operates analogously to {@link #requestElements(boolean)}.
+	 * This method otherwise operates analogously to {@link #requestElements(RefreshBehavior)}.
 	 * 
 	 * @param refresh true to invalidate all caches involved in handling this request
 	 * @return a future which completes when the cache has been updated
 	 */
-	protected CompletableFuture<Void> requestAttributes(boolean refresh) {
-		return AsyncUtils.NIL;
+	protected CompletableFuture<Void> requestAttributes(RefreshBehavior refresh) {
+		return AsyncUtils.nil();
 	}
 
-	private boolean shouldRequestAttributes(boolean refresh) {
-		if (refresh) {
+	private boolean shouldRequestAttributes(RefreshBehavior refresh) {
+		if (refresh.equals(RefreshBehavior.REFRESH_ALWAYS)) {
 			return true;
 		}
 		ResyncMode resync = getSchema().getAttributeResyncMode();
@@ -393,14 +372,14 @@ public class DefaultTargetObject<E extends TargetObject, P extends TargetObject>
 	 *           object's attributes are unchanging.
 	 */
 	@Override
-	public CompletableFuture<? extends Map<String, ?>> fetchAttributes(boolean refresh) {
+	public CompletableFuture<? extends Map<String, ?>> fetchAttributes(RefreshBehavior refresh) {
 		CompletableFuture<Void> req;
 		synchronized (attributes) {
 			// update_mode does not affect attributes. They always behave as if UNSOLICITED.
 			if (shouldRequestAttributes(refresh)) {
 				curAttrsRequest = model.gateFuture(requestAttributes(refresh));
 			}
-			req = curAttrsRequest == null ? AsyncUtils.NIL : curAttrsRequest;
+			req = curAttrsRequest == null ? AsyncUtils.nil() : curAttrsRequest;
 		}
 		return req.thenApply(__ -> {
 			synchronized (model.lock) {
@@ -414,13 +393,13 @@ public class DefaultTargetObject<E extends TargetObject, P extends TargetObject>
 
 	@Override
 	public CompletableFuture<? extends Map<String, ?>> fetchAttributes() {
-		return fetchAttributes(false);
+		return fetchAttributes(RefreshBehavior.REFRESH_NEVER);
 	}
 
 	@Override
 	public Map<String, ?> getCachedAttributes() {
 		synchronized (model.lock) {
-			return Map.copyOf(attributes);
+			return attributes == null ? Map.of() : Map.copyOf(attributes);
 		}
 	}
 
@@ -432,7 +411,8 @@ public class DefaultTargetObject<E extends TargetObject, P extends TargetObject>
 	@Override
 	public Object getCachedAttribute(String name) {
 		synchronized (model.lock) {
-			return attributes.get(name);
+			// Could get called during object's constructor
+			return attributes == null ? null : attributes.get(name);
 		}
 	}
 
@@ -493,7 +473,7 @@ public class DefaultTargetObject<E extends TargetObject, P extends TargetObject>
 			doInvalidateAttributes(delta.removed, reason);
 			if (!delta.isEmpty()) {
 				updateCallbackAttributes(delta);
-				listeners.fire.attributesChanged(getProxy(), delta.getKeysRemoved(), delta.added);
+				broadcast().attributesChanged(getProxy(), delta.getKeysRemoved(), delta.added);
 			}
 		}
 		return delta;
@@ -558,7 +538,7 @@ public class DefaultTargetObject<E extends TargetObject, P extends TargetObject>
 			doInvalidateAttributes(delta.removed, reason);
 			if (!delta.isEmpty()/* && !reason.equals("Default")*/) {
 				updateCallbackAttributes(delta);
-				listeners.fire.attributesChanged(getProxy(), delta.getKeysRemoved(), delta.added);
+				broadcast().attributesChanged(getProxy(), delta.getKeysRemoved(), delta.added);
 			}
 		}
 		return delta;

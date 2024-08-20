@@ -15,24 +15,19 @@
  */
 package ghidra.app.util.bin.format.pdb2.pdbreader;
 
-import java.util.Objects;
+import java.io.IOException;
+import java.io.Writer;
 
 /**
- * This class is the version of {@link AbstractModuleInformation} for Microsoft v6.00 PDB.
+ * This class is the version of {@link ModuleInformation} for Microsoft v6.00 PDB.
  */
-public class ModuleInformation600 extends AbstractModuleInformation {
-
-	//==============================================================================================
-	// Internals
-	//==============================================================================================
-	private AbstractPdb pdb;
+public class ModuleInformation600 extends ModuleInformation {
 
 	//==============================================================================================
 	// API
 	//==============================================================================================
 	public ModuleInformation600(AbstractPdb pdb) {
-		Objects.requireNonNull(pdb, "pdb cannot be null");
-		this.pdb = pdb;
+		super(pdb);
 		sectionContribution = new SectionContribution600();
 	}
 
@@ -52,13 +47,9 @@ public class ModuleInformation600 extends AbstractModuleInformation {
 	}
 
 	@Override
-	protected String dumpAdditionals() {
-		StringBuilder builder = new StringBuilder();
-		builder.append("\nnameIndexSourceFile: ");
-		builder.append(nameIndexSourceFile);
-		builder.append("\nnameIndexCompilerPdbPath: ");
-		builder.append(nameIndexCompilerPdbPath);
-		return builder.toString();
+	protected void dumpAdditionals(Writer writer) throws IOException {
+		writer.write("\nnameIndexSourceFile: " + nameIndexSourceFile);
+		writer.write("\nnameIndexCompilerPdbPath: " + nameIndexCompilerPdbPath);
 	}
 
 }

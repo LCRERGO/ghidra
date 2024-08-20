@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,6 +16,7 @@
 package ghidra.file.formats.dump.userdump;
 
 import java.io.IOException;
+import java.util.Collection;
 import java.util.List;
 
 import ghidra.app.util.Option;
@@ -23,9 +24,7 @@ import ghidra.app.util.OptionUtils;
 import ghidra.app.util.opinion.PeLoader;
 import ghidra.file.formats.dump.*;
 import ghidra.file.formats.dump.cmd.ModuleToPeHelper;
-import ghidra.framework.options.Options;
 import ghidra.program.model.data.*;
-import ghidra.program.model.listing.Program;
 import ghidra.util.Msg;
 import ghidra.util.task.TaskMonitor;
 
@@ -41,13 +40,12 @@ public class Userdump extends DumpFile {
 
 		super(reader, dtm, options, monitor);
 
-		Options props = program.getOptions(Program.PROGRAM_INFO);
-		props.setString("Executable Format", PeLoader.PE_NAME);
+		program.setExecutableFormat(PeLoader.PE_NAME);
 		initManagerList(null);
 
 		createBlocks =
-			OptionUtils.getBooleanOptionValue(DumpFileLoader.CREATE_MEMORY_BLOCKS_OPTION_NAME,
-				options, DumpFileLoader.CREATE_MEMORY_BLOCKS_OPTION_DEFAULT);
+			OptionUtils.getBooleanOptionValue(CREATE_MEMORY_BLOCKS_OPTION_NAME,
+				options, CREATE_MEMORY_BLOCKS_OPTION_DEFAULT);
 
 		try {
 
@@ -71,9 +69,9 @@ public class Userdump extends DumpFile {
 		DataType dt = header.toDataType();
 		data.add(new DumpData(0, "DumpHeader", dt.getLength()));
 
-		int regionOffset = (int) header.getMemoryRegionOffset();
-		addInteriorAddressObject("DumpHeader", 0, 0L, regionOffset);
-		int blocksLength = (int) (reader.length() - regionOffset);
+		long regionOffset = header.getMemoryRegionOffset();
+		addInteriorAddressObject("DumpHeader", 0L, 0L, regionOffset);
+		long blocksLength = reader.length() - regionOffset;
 		addInteriorAddressObject("RawBlocks", regionOffset,
 			header.getMemoryRegionOffset(), blocksLength);
 
@@ -99,7 +97,7 @@ public class Userdump extends DumpFile {
 
 			long stackOffset = t.getStackRVA();
 			if (createBlocks && stackOffset != 0) {
-				addInteriorAddressObject("ThreadStack_" + tid, (int) stackOffset,
+				addInteriorAddressObject("ThreadStack_" + tid, stackOffset,
 					t.getStackStartOfMemoryRange(), t.getStackDataSize());
 			}
 			offset += dt.getLength();
@@ -132,7 +130,7 @@ public class Userdump extends DumpFile {
 
 			long regionSize = minfo.getRegionSize();
 			if (createBlocks) {
-				addInteriorAddressObject("Memory", (int) rva, minfo.getBaseAddress(), regionSize);
+				addInteriorAddressObject("Memory", rva, minfo.getBaseAddress(), regionSize);
 			}
 			//ArrayDataType block =
 			//	new ArrayDataType(ByteDataType.dataType, (int) regionSize, 1);
@@ -162,13 +160,26 @@ public class Userdump extends DumpFile {
 		return Integer.toHexString(header.getMachineImageType());
 	}
 
+	@Override
 	public void analyze(TaskMonitor monitor) {
 		boolean analyzeEmbeddedObjects =
-			OptionUtils.getBooleanOptionValue(DumpFileLoader.ANALYZE_EMBEDDED_OBJECTS_OPTION_NAME,
+			OptionUtils.getBooleanOptionValue(ANALYZE_EMBEDDED_OBJECTS_OPTION_NAME,
 				options,
-				DumpFileLoader.ANALYZE_EMBEDDED_OBJECTS_OPTION_DEFAULT);
+				ANALYZE_EMBEDDED_OBJECTS_OPTION_DEFAULT);
 		if (analyzeEmbeddedObjects) {
 			ModuleToPeHelper.queryModules(program, monitor);
 		}
+	}
+
+	/**
+	 * Get default <code>Userdump</code> loader options. See
+	 * {@link DumpFile#getDefaultOptions(DumpFileReader)}.
+	 * 
+	 * @param reader dump file reader
+	 * @return default collection of Userdump loader options
+	 */
+	public static Collection<? extends Option> getDefaultOptions(DumpFileReader reader) {
+		// Use DumpFile default options
+		return DumpFile.getDefaultOptions(reader);
 	}
 }

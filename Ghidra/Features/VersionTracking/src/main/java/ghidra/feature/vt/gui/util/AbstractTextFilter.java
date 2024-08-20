@@ -71,6 +71,7 @@ public abstract class AbstractTextFilter<T> extends Filter<T> {
 		textField.disableFocusEventProcessing();
 
 		JLabel label = new GDLabel(filterName + ": ");
+		label.setLabelFor(textField);
 		panel.add(label, BorderLayout.WEST);
 		panel.add(textField, BorderLayout.CENTER);
 
@@ -122,11 +123,6 @@ public abstract class AbstractTextFilter<T> extends Filter<T> {
 	@Override
 	public JComponent getComponent() {
 		return component;
-	}
-
-	@Override
-	public void clearFilter() {
-		textField.setText(defaultValue);
 	}
 
 	@Override

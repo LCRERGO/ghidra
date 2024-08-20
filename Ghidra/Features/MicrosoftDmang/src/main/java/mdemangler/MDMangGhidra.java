@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,9 +19,11 @@ import java.util.Iterator;
 
 import ghidra.app.util.demangler.*;
 import ghidra.program.model.lang.CompilerSpec;
+import ghidra.program.model.symbol.SourceType;
 import mdemangler.datatype.MDDataType;
 import mdemangler.datatype.MDVarArgsType;
 import mdemangler.datatype.complex.*;
+import mdemangler.datatype.extended.MDArrayReferencedType;
 import mdemangler.datatype.modifier.*;
 import mdemangler.functiontype.*;
 import mdemangler.naming.*;
@@ -49,9 +51,8 @@ public class MDMangGhidra extends MDMang {
 		return dataTypeResult;
 	}
 
-	@Override
-	public MDParsableItem demangle(String mangledArg, boolean demangleOnlyKnownPatterns)
-			throws MDException {
+	public MDParsableItem demangle(String mangledArg, boolean errorOnRemainingChars,
+			boolean demangleOnlyKnownPatterns) throws MDException {
 		// TODO: Could possibly just ignore "demangleOnlyKnownpatterns"
 		if (demangleOnlyKnownPatterns) {
 			if (!(mangledArg.startsWith("?") || mangledArg.startsWith(".") ||
@@ -61,6 +62,13 @@ public class MDMangGhidra extends MDMang {
 				return null;
 			}
 		}
+
+		return demangle(mangledArg, errorOnRemainingChars);
+	}
+
+	@Override
+	public MDParsableItem demangle(String mangledArg, boolean errorOnRemainingChars)
+			throws MDException {
 
 		this.mangledSource = mangledArg;
 
@@ -72,33 +80,97 @@ public class MDMangGhidra extends MDMang {
 		return returnedItem;
 	}
 
-	public DemangledType processNamespace(MDQualifiedName qualifiedName) {
+	@Override
+	public MDDataType demangleType(String mangledArg, boolean errorOnRemainingChars)
+			throws MDException {
+
+		this.mangledSource = mangledArg;
+
+		MDDataType returnedType = super.demangleType(mangledArg, errorOnRemainingChars);
+
+		this.demangledSource = returnedType.toString();
+
+		dataTypeResult = processDataType(null, returnedType);
+		return returnedType;
+	}
+
+	public Demangled processNamespace(MDQualifiedName qualifiedName) {
 		return processNamespace(qualifiedName.getQualification());
 	}
 
-	private DemangledType processNamespace(MDQualification qualification) {
+	private Demangled processNamespace(MDQualification qualification) {
 		Iterator<MDQualifier> it = qualification.iterator();
 		if (!it.hasNext()) {
 			return null;
 		}
 
 		MDQualifier qual = it.next();
-		DemangledType type = new DemangledType(mangledSource, demangledSource, qual.toString());
-		DemangledType parentType = type;
+		Demangled type = getDemangled(qual);
+		Demangled current = type;
+		// Note that qualifiers come in reverse order, from most refined to root being the last
 		while (it.hasNext()) {
 			qual = it.next();
-			DemangledType newType;
-			if (qual.isNested()) {
-				String subMangled = qual.getNested().getMangled();
-				newType = new DemangledType(subMangled, demangledSource, qual.toString());
-			}
-			else {
-				newType = new DemangledType(mangledSource, demangledSource, qual.toString());
-			}
-			parentType.setNamespace(newType);
-			parentType = newType;
+			Demangled parent = getDemangled(qual);
+			current.setNamespace(parent);
+			current = parent;
 		}
 		return type;
+	}
+
+	private Demangled getDemangled(MDQualifier qual) {
+		Demangled demangled;
+		if (qual.isNested()) {
+			String subMangled = qual.getNested().getMangled();
+			MDObjectCPP obj = qual.getNested().getNestedObject();
+			MDTypeInfo typeInfo = obj.getTypeInfo();
+			MDType type = typeInfo.getMDType();
+			if (type instanceof MDDataType dt) {
+				demangled = new DemangledType(subMangled, qual.toString(), qual.toString());
+			}
+			else if (type instanceof MDFunctionType ft) {
+				// We currently cannot handle functions as part of a namespace, so we will just
+				// treat the demangled function namespace string as a plain namespace.
+				//demangled = new DemangledFunction(subMangled, qual.toString(), qual.toString());
+				demangled =
+					new DemangledNamespaceNode(subMangled, qual.toString(), qual.toString());
+			}
+			else {
+				demangled =
+					new DemangledNamespaceNode(subMangled, qual.toString(), qual.toString());
+			}
+		}
+		else if (qual.isAnon()) {
+			// Instead of using the standard qual.toString() method, which returns
+			// "`anonymous namespace'" for anonymous qualifiers, we use qual.getAnonymousName()
+			// which will have the underlying anonymous name of the form "A0xfedcba98" to create
+			// a standardized anonymous name that is distinguishable from other anonymous names.
+			// The standardized name comes from createStandardAnonymousNamespaceNode().  This
+			// is especially important when there are sibling anonymous names.
+			String anon = MDMangUtils.createStandardAnonymousNamespaceNode(qual.getAnonymousName());
+			demangled = new DemangledNamespaceNode(mangledSource, qual.toString(), anon);
+		}
+		else if (qual.isInterface()) {
+			// TODO: need to do better; setting namespace for now
+			demangled = new DemangledNamespaceNode(mangledSource, qual.toString(), qual.toString());
+		}
+		else if (qual.isNameQ()) {
+			// TODO: need to do better; setting namespace for now, as it looks like interface
+			demangled = new DemangledNamespaceNode(mangledSource, qual.toString(), qual.toString());
+		}
+		else if (qual.isNameC()) {
+			// TODO: need to do better; setting type for now, but not processed yet and not sure
+			//  what it is
+			demangled = new DemangledType(mangledSource, qual.toString(), qual.toString());
+		}
+		else if (qual.isLocalNamespace()) {
+			String local =
+				MDMangUtils.createStandardLocalNamespaceNode(qual.getLocalNamespaceNumber());
+			demangled = new DemangledNamespaceNode(mangledSource, qual.toString(), local);
+		}
+		else {
+			demangled = new DemangledNamespaceNode(mangledSource, qual.toString(), qual.toString());
+		}
+		return demangled;
 	}
 
 	private DemangledObject processItem() {
@@ -106,24 +178,24 @@ public class MDMangGhidra extends MDMang {
 		if (item instanceof MDObjectReserved) {
 			objectResult = processObjectReserved((MDObjectReserved) item);
 		}
-		else if (item instanceof MDObjectCodeView) {
-			objectResult = processObjectCPP((MDObjectCPP) item);
-			objectResult.setSpecialPrefix(((MDObjectCodeView) item).getPrefix());
+		else if (item instanceof MDObjectCodeView codeView) {
+			objectResult = processObjectCPP(codeView);
+			objectResult.setSpecialPrefix(codeView.getPrefix());
 		}
-		else if (item instanceof MDObjectCPP) { // Base class of MDObjectBracket/MDObjectCodeView.
-			objectResult = processObjectCPP((MDObjectCPP) item);
+		else if (item instanceof MDObjectCPP objCpp) { // Base class of MDObjectBracket/MDObjectCodeView.
+			objectResult = processObjectCPP(objCpp);
 		}
-		else if (item instanceof MDObjectC) {
-			objectResult = processObjectC((MDObjectC) item);
+		else if (item instanceof MDObjectC objC) {
+			objectResult = processObjectC(objC);
 		}
-		else if (item instanceof MDDataType) {
+		else if (item instanceof MDDataType dataType) {
 			// TODO: how do we fix this? DemangledDataType extends DemangledType, but not
 			// DemangleObject...
-			dataTypeResult = processDataType(null, (MDDataType) item);
+			dataTypeResult = processDataType(null, dataType);
 			// object = getDemangledDataType();
 		}
-		else if (item instanceof MDTemplateNameAndArguments) {
-			objectResult = processTemplate((MDTemplateNameAndArguments) item);
+		else if (item instanceof MDTemplateNameAndArguments templateNameAndArgs) {
+			objectResult = processTemplate(templateNameAndArgs);
 		}
 		return objectResult;
 	}
@@ -143,7 +215,8 @@ public class MDMangGhidra extends MDMang {
 			object = processObjectCPP(objectCPP);
 			object.setSpecialPrefix(((MDObjectBracket) item).getPrefix());
 		}
-		//TODO: put other objectReserved derivative types here and return something that Ghidra can use.
+		//TODO: put other objectReserved derivative types here and return something that Ghidra
+		// can use.
 		else {
 			object =
 				new DemangledUnknown(mangledSource, demangledSource, objectReserved.toString());
@@ -189,7 +262,7 @@ public class MDMangGhidra extends MDMang {
 				else {
 					variable =
 						new DemangledVariable(mangledSource, demangledSource, objectCPP.getName());
-					variable.setNamespace(processNamespace(objectCPP.getQualfication()));
+					variable.setNamespace(processNamespace(objectCPP.getQualification()));
 				}
 				variable.setDatatype(dt);
 				resultObject = variable;
@@ -214,7 +287,8 @@ public class MDMangGhidra extends MDMang {
 				else {
 					DemangledFunction function =
 						new DemangledFunction(mangledSource, demangledSource, objectCPP.getName());
-					function.setNamespace(processNamespace(objectCPP.getQualfication()));
+					function.setSignatureSourceType(SourceType.IMPORTED);
+					function.setNamespace(processNamespace(objectCPP.getQualification()));
 					resultObject = function;
 					objectResult = processFunction((MDFunctionInfo) typeinfo, function);
 					// Any other special values to be set?
@@ -244,7 +318,7 @@ public class MDMangGhidra extends MDMang {
 				MDVxTable vxtable = (MDVxTable) typeinfo;
 				DemangledVariable variable =
 					new DemangledVariable(mangledSource, demangledSource, objectCPP.getName());
-				variable.setNamespace(processNamespace(objectCPP.getQualfication()));
+				variable.setNamespace(processNamespace(objectCPP.getQualification()));
 				variable.setConst(vxtable.isConst());
 				variable.setVolatile(vxtable.isVolatile());
 				variable.setPointer64(vxtable.isPointer64());
@@ -256,7 +330,7 @@ public class MDMangGhidra extends MDMang {
 			else if (typeinfo instanceof AbstractMDMetaClass) { //Includes all RTTI, except RTTI4
 				DemangledVariable variable =
 					new DemangledVariable(mangledSource, demangledSource, objectCPP.getName());
-				variable.setNamespace(processNamespace(objectCPP.getQualfication()));
+				variable.setNamespace(processNamespace(objectCPP.getQualification()));
 				resultObject = variable;
 				// The following code would be an alternative, depending on whether we get
 				//  customer complaints or other fall-out from having created a variable here.
@@ -265,7 +339,7 @@ public class MDMangGhidra extends MDMang {
 			else if (typeinfo instanceof MDGuard) {
 				DemangledVariable variable =
 					new DemangledVariable(mangledSource, demangledSource, objectCPP.getName());
-				variable.setNamespace(processNamespace(objectCPP.getQualfication()));
+				variable.setNamespace(processNamespace(objectCPP.getQualification()));
 				resultObject = variable;
 				// The following code would be an alternative, depending on whether we get
 				//  customer complaints or other fall-out from having created a variable here.
@@ -275,7 +349,7 @@ public class MDMangGhidra extends MDMang {
 				// Any others (e.g., case '9')
 				DemangledVariable variable =
 					new DemangledVariable(mangledSource, demangledSource, objectCPP.getName());
-				variable.setNamespace(processNamespace(objectCPP.getQualfication()));
+				variable.setNamespace(processNamespace(objectCPP.getQualification()));
 				resultObject = variable;
 				// The following code would be an alternative, depending on whether we get
 				//  customer complaints or other fall-out from having created a variable here.
@@ -309,7 +383,7 @@ public class MDMangGhidra extends MDMang {
 			else if (baseName.length() != 0) {
 				DemangledVariable variable;
 				variable = new DemangledVariable(mangledSource, demangledSource, baseName);
-				variable.setNamespace(processNamespace(objectCPP.getQualfication()));
+				variable.setNamespace(processNamespace(objectCPP.getQualification()));
 				resultObject = variable;
 			}
 		}
@@ -365,7 +439,8 @@ public class MDMangGhidra extends MDMang {
 		MDArgumentsList args = functionType.getArgumentsList();
 		if (functionType.hasArgs() && args != null) {
 			for (int index = 0; index < args.getNumArgs(); index++) {
-				function.addParameter(processDataType(null, args.getArg(index)));
+				function.addParameter(
+					new DemangledParameter(processDataType(null, args.getArg(index))));
 			}
 		}
 		if (functionType.isTypeCast()) {
@@ -452,7 +527,8 @@ public class MDMangGhidra extends MDMang {
 	}
 
 	private DemangledFunctionReference processDemangledFunctionReference(MDModifierType refType) {
-		if (!((refType instanceof MDReferenceType) || (refType instanceof MDDataRefRefType))) {
+		if (!((refType instanceof MDReferenceType) ||
+			(refType instanceof MDDataRightReferenceType))) {
 			return null; // Not planning on anything else yet.
 		}
 		DemangledFunctionReference functionReference =
@@ -610,18 +686,19 @@ public class MDMangGhidra extends MDMang {
 				// modifierType.getArrayString();
 				// resultDataType.setArray();
 				//Processing the referenced type (for Ghidra, and then setting attributes on it)
-				processDataType(resultDataType, (MDDataType) modifierType.getReferencedType());
-				resultDataType.incrementPointerLevels();
+				DemangledDataType newResult =
+					processDataType(resultDataType, (MDDataType) modifierType.getReferencedType());
+				newResult.incrementPointerLevels();
 				if (modifierType.getCVMod().isConst()) {
-					resultDataType.setConst();
+					newResult.setConst();
 				}
 				if (modifierType.getCVMod().isVolatile()) {
-					resultDataType.setVolatile();
+					newResult.setVolatile();
 				}
 				if (modifierType.getCVMod().isPointer64()) {
-					resultDataType.setPointer64();
+					newResult.setPointer64();
 				}
-				return resultDataType;
+				return newResult;
 			}
 			// TODO: fix. Following is a kludge because DemangledObject has no
 			// DemangledReference
@@ -648,18 +725,19 @@ public class MDMangGhidra extends MDMang {
 					return fr;
 				}
 				//Processing the referenced type (for Ghidra, and then setting attributes on it)
-				processDataType(resultDataType, (MDDataType) modifierType.getReferencedType());
-				resultDataType.setReference(); // Not sure if we should do/use this.
+				DemangledDataType newResult =
+					processDataType(resultDataType, (MDDataType) modifierType.getReferencedType());
+				newResult.setLValueReference();
 				if (modifierType.getCVMod().isConst()) {
-					resultDataType.setConst();
+					newResult.setConst();
 				}
 				if (modifierType.getCVMod().isVolatile()) {
-					resultDataType.setVolatile();
+					newResult.setVolatile();
 				}
 				if (modifierType.getCVMod().isPointer64()) {
-					resultDataType.setPointer64();
+					newResult.setPointer64();
 				}
-				return resultDataType;
+				return newResult;
 			}
 			// TODO: fix. Following is a kludge because DemangledObject has no DemangledReference
 			// with corresponding referencedType.
@@ -702,7 +780,7 @@ public class MDMangGhidra extends MDMang {
 				}
 				return resultDataType;
 			}
-			else if (modifierType instanceof MDDataRefRefType) {
+			else if (modifierType instanceof MDDataRightReferenceType) {
 				if ((modifierType.getReferencedType() instanceof MDFunctionType)) {
 					resultDataType.setName(getDataTypeName(datatype));
 					// TODO---------what are we returning... need to work on called routine.
@@ -725,7 +803,7 @@ public class MDMangGhidra extends MDMang {
 				}
 				//Processing the referenced type (for Ghidra, and then setting attributes on it)
 				processDataType(resultDataType, (MDDataType) modifierType.getReferencedType());
-				resultDataType.setReference(); // Not sure if we should do/use this.
+				resultDataType.setRValueReference();
 				if (modifierType.getCVMod().isConst()) {
 					resultDataType.setConst();
 				}
@@ -736,9 +814,6 @@ public class MDMangGhidra extends MDMang {
 					resultDataType.setPointer64();
 				}
 				return resultDataType;
-			}
-			else if (modifierType instanceof MDStdNullPtrType) {
-				resultDataType.setName(datatype.toString());
 			}
 			else {
 				// not pointer, reference, or array type
@@ -808,13 +883,19 @@ public class MDMangGhidra extends MDMang {
 			}
 		}
 		else if (datatype instanceof MDReferenceType) {
-			resultDataType.setReference();
+			resultDataType.setLValueReference();
 		}
 		else if (datatype instanceof MDArrayBasicType) {
 			resultDataType.setArray(1);
 		}
 		else if (datatype instanceof MDVarArgsType) {
 			resultDataType.setVarArgs();
+		}
+		else if (datatype instanceof MDArrayReferencedType arrRefType) {
+			return processDataType(resultDataType, arrRefType.getReferencedType());
+		}
+		else if (datatype instanceof MDStdNullPtrType) {
+			resultDataType.setName(datatype.toString());
 		}
 		else {
 			// MDDataType
@@ -849,6 +930,3 @@ public class MDMangGhidra extends MDMang {
 		return dataType.toString();
 	}
 }
-
-/******************************************************************************/
-/******************************************************************************/

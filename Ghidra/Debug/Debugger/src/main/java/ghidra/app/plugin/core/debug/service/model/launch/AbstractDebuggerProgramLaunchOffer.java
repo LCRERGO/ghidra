@@ -15,26 +15,39 @@
  */
 package ghidra.app.plugin.core.debug.service.model.launch;
 
+import static ghidra.async.AsyncUtils.*;
+
+import java.io.File;
 import java.io.IOException;
 import java.util.*;
+import java.util.Map.Entry;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
-import org.apache.commons.lang3.exception.ExceptionUtils;
+import javax.swing.Icon;
+import javax.swing.JOptionPane;
+
 import org.jdom.Element;
 import org.jdom.JDOMException;
 
+import db.Transaction;
+import ghidra.app.plugin.core.debug.gui.DebuggerResources;
 import ghidra.app.plugin.core.debug.gui.objects.components.DebuggerMethodInvocationDialog;
 import ghidra.app.services.*;
-import ghidra.app.services.ModuleMapProposal.ModuleMapEntry;
+import ghidra.app.services.DebuggerTraceManagerService.ActivationCause;
 import ghidra.async.*;
 import ghidra.dbg.*;
 import ghidra.dbg.target.*;
 import ghidra.dbg.target.TargetLauncher.TargetCmdLineLauncher;
 import ghidra.dbg.target.TargetMethod.ParameterDescription;
+import ghidra.dbg.target.TargetMethod.TargetParameterMap;
 import ghidra.dbg.target.schema.TargetObjectSchema;
 import ghidra.dbg.util.PathUtils;
+import ghidra.debug.api.model.DebuggerProgramLaunchOffer;
+import ghidra.debug.api.model.TraceRecorder;
+import ghidra.debug.api.modules.*;
+import ghidra.debug.api.modules.ModuleMapProposal.ModuleMapEntry;
 import ghidra.framework.model.DomainFile;
 import ghidra.framework.options.SaveState;
 import ghidra.framework.plugintool.AutoConfigState.ConfigStateField;
@@ -46,13 +59,19 @@ import ghidra.trace.model.Trace;
 import ghidra.trace.model.TraceLocation;
 import ghidra.trace.model.modules.TraceModule;
 import ghidra.util.Msg;
-import ghidra.util.database.UndoableTransaction;
+import ghidra.util.Swing;
 import ghidra.util.datastruct.CollectionChangeListener;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 import ghidra.util.xml.XmlUtilities;
 
 public abstract class AbstractDebuggerProgramLaunchOffer implements DebuggerProgramLaunchOffer {
+	private static final String HTML = "<html><p style='width:300px;'>";
+	private static final String NO_PAUSE_DIAGNOSTIC_MESSAGE = "" +
+		"It's possible the target launched but never paused, and so Ghidra has not been " +
+		"able to inspect it. Try interrupting the target, then inspect the process list. " +
+		"Further intervention may be required to establish the module/address mappings.";
+
 	protected final Program program;
 	protected final PluginTool tool;
 	protected final DebuggerModelFactory factory;
@@ -62,6 +81,11 @@ public abstract class AbstractDebuggerProgramLaunchOffer implements DebuggerProg
 		this.program = program;
 		this.tool = tool;
 		this.factory = factory;
+	}
+
+	@Override
+	public Icon getIcon() {
+		return DebuggerResources.ICON_DEBUGGER;
 	}
 
 	@Override
@@ -82,6 +106,44 @@ public abstract class AbstractDebuggerProgramLaunchOffer implements DebuggerProg
 		return 10000;
 	}
 
+	protected static class TargetResult extends CompletableFuture<TargetObject>
+			implements DebuggerModelListener {
+		private final DebuggerObjectModel model;
+
+		public TargetResult(DebuggerObjectModel model) {
+			this.model = model;
+			exceptionally(this::onError);
+			model.addModelListener(this);
+		}
+
+		protected void checkObject(TargetObject object) {
+			if (DebugModelConventions.liveProcessOrNull(object) == null) {
+				return;
+			}
+			complete(object);
+			model.removeModelListener(this);
+		}
+
+		protected TargetObject onError(Throwable ex) {
+			model.removeModelListener(this);
+			return null;
+		}
+
+		@Override
+		public void created(TargetObject object) {
+			checkObject(object);
+		}
+
+		@Override
+		public void attributesChanged(TargetObject object, Collection<String> removed,
+				Map<String, ?> added) {
+			if (!added.containsKey(TargetExecutionStateful.STATE_ATTRIBUTE_NAME)) {
+				return;
+			}
+			checkObject(object);
+		}
+	}
+
 	/**
 	 * Listen for the launched target in the model
 	 * 
@@ -95,37 +157,33 @@ public abstract class AbstractDebuggerProgramLaunchOffer implements DebuggerProg
 	 * @return a future that completes with the target object
 	 */
 	protected CompletableFuture<TargetObject> listenForTarget(DebuggerObjectModel model) {
-		var result = new CompletableFuture<TargetObject>() {
-			DebuggerModelListener listener = new DebuggerModelListener() {
-				protected void checkObject(TargetObject object) {
-					if (DebugModelConventions.liveProcessOrNull(object) == null) {
-						return;
-					}
-					complete(object);
-					model.removeModelListener(this);
-				}
+		return new TargetResult(model);
+	}
 
-				@Override
-				public void created(TargetObject object) {
-					checkObject(object);
-				}
+	protected static class RecorderResult extends CompletableFuture<TraceRecorder>
+			implements CollectionChangeListener<TraceRecorder> {
+		private final DebuggerModelService service;
+		private final TargetObject target;
 
-				@Override
-				public void attributesChanged(TargetObject object, Collection<String> removed,
-						Map<String, ?> added) {
-					if (!added.containsKey(TargetExecutionStateful.STATE_ATTRIBUTE_NAME)) {
-						return;
-					}
-					checkObject(object);
-				}
-			};
-		};
-		model.addModelListener(result.listener);
-		result.exceptionally(ex -> {
-			model.removeModelListener(result.listener);
+		public RecorderResult(DebuggerModelService service, TargetObject target) {
+			this.service = service;
+			this.target = target;
+			exceptionally(this::onError);
+			service.addTraceRecordersChangedListener(this);
+		}
+
+		protected TraceRecorder onError(Throwable ex) {
+			service.removeTraceRecordersChangedListener(this);
 			return null;
-		});
-		return result;
+		}
+
+		@Override
+		public void elementAdded(TraceRecorder element) {
+			if (element.getTarget() == target) {
+				complete(element);
+				service.removeTraceRecordersChangedListener(this);
+			}
+		}
 	}
 
 	/**
@@ -137,74 +195,79 @@ public abstract class AbstractDebuggerProgramLaunchOffer implements DebuggerProg
 	 */
 	protected CompletableFuture<TraceRecorder> listenForRecorder(DebuggerModelService service,
 			TargetObject target) {
-		var result = new CompletableFuture<TraceRecorder>() {
-			CollectionChangeListener<TraceRecorder> listener = new CollectionChangeListener<>() {
-				@Override
-				public void elementAdded(TraceRecorder element) {
-					if (element.getTarget() == target) {
-						complete(element);
-						service.removeTraceRecordersChangedListener(this);
-					}
-				}
-			};
-		};
-		service.addTraceRecordersChangedListener(result.listener);
-		result.exceptionally(ex -> {
-			service.removeTraceRecordersChangedListener(result.listener);
-			return null;
-		});
-		return result;
+		return new RecorderResult(service, target);
 	}
 
-	protected Address getMappingProbeAddress() {
-		AddressIterator eepi = program.getSymbolTable().getExternalEntryPointIterator();
-		if (eepi.hasNext()) {
-			return eepi.next();
+	protected static class MappingResult extends CompletableFuture<Void>
+			implements DebuggerStaticMappingChangeListener {
+		private final DebuggerStaticMappingService mappingService;
+		private final TraceRecorder recorder;
+		private final Program program;
+
+		private final Trace trace;
+		private final ProgramLocation probe;
+
+		public MappingResult(DebuggerStaticMappingService mappingService, TraceRecorder recorder,
+				Program program) {
+			this.mappingService = mappingService;
+			this.recorder = recorder;
+			this.program = program;
+
+			this.probe = new ProgramLocation(program, getMappingProbeAddress());
+			this.trace = recorder.getTrace();
+
+			exceptionally(this::onError);
+			mappingService.addChangeListener(this);
+			check();
 		}
-		InstructionIterator ii = program.getListing().getInstructions(true);
-		if (ii.hasNext()) {
-			return ii.next().getAddress();
+
+		protected Void onError(Throwable ex) {
+			mappingService.removeChangeListener(this);
+			return null;
 		}
-		AddressSetView es = program.getMemory().getExecuteSet();
-		if (!es.isEmpty()) {
-			return es.getMinAddress();
+
+		protected Address getMappingProbeAddress() {
+			AddressIterator eepi = program.getSymbolTable().getExternalEntryPointIterator();
+			if (eepi.hasNext()) {
+				return eepi.next();
+			}
+			InstructionIterator ii = program.getListing().getInstructions(true);
+			if (ii.hasNext()) {
+				return ii.next().getAddress();
+			}
+			AddressSetView es = program.getMemory().getExecuteSet();
+			if (!es.isEmpty()) {
+				return es.getMinAddress();
+			}
+			if (!program.getMemory().isEmpty()) {
+				return program.getMinAddress();
+			}
+			return null; // There's no hope
 		}
-		if (!program.getMemory().isEmpty()) {
-			return program.getMinAddress();
+
+		@Override
+		public void mappingsChanged(Set<Trace> affectedTraces, Set<Program> affectedPrograms) {
+			if (!affectedPrograms.contains(program) &&
+				!affectedTraces.contains(trace)) {
+				return;
+			}
+			check();
 		}
-		return null; // There's no hope
+
+		protected void check() {
+			TraceLocation result =
+				mappingService.getOpenMappedLocation(trace, probe, recorder.getSnap());
+			if (result == null) {
+				return;
+			}
+			complete(null);
+			mappingService.removeChangeListener(this);
+		}
 	}
 
 	protected CompletableFuture<Void> listenForMapping(
 			DebuggerStaticMappingService mappingService, TraceRecorder recorder) {
-		ProgramLocation probe = new ProgramLocation(program, getMappingProbeAddress());
-		Trace trace = recorder.getTrace();
-		var result = new CompletableFuture<Void>() {
-			DebuggerStaticMappingChangeListener listener = (affectedTraces, affectedPrograms) -> {
-				if (!affectedPrograms.contains(program) &&
-					!affectedTraces.contains(trace)) {
-					return;
-				}
-				check();
-			};
-
-			protected void check() {
-				TraceLocation result =
-					mappingService.getOpenMappedLocation(trace, probe, recorder.getSnap());
-				if (result == null) {
-					return;
-				}
-				complete(null);
-				mappingService.removeChangeListener(listener);
-			}
-		};
-		mappingService.addChangeListener(result.listener);
-		result.check();
-		result.exceptionally(ex -> {
-			mappingService.removeChangeListener(result.listener);
-			return null;
-		});
-		return result;
+		return new MappingResult(mappingService, recorder, program);
 	}
 
 	protected Collection<ModuleMapEntry> invokeMapper(TaskMonitor monitor,
@@ -230,7 +293,7 @@ public abstract class AbstractDebuggerProgramLaunchOffer implements DebuggerProg
 		}
 		if (program != null) {
 			ProgramUserData userData = program.getProgramUserData();
-			try (UndoableTransaction tid = UndoableTransaction.start(userData)) {
+			try (Transaction tx = userData.openTransaction()) {
 				Element element = state.saveToXml();
 				userData.setStringProperty(TargetCmdLineLauncher.CMDLINE_ARGS_NAME,
 					XmlUtilities.toString(element));
@@ -258,7 +321,15 @@ public abstract class AbstractDebuggerProgramLaunchOffer implements DebuggerProg
 		if (program == null) {
 			return Map.of();
 		}
-		return Map.of(TargetCmdLineLauncher.CMDLINE_ARGS_NAME, program.getExecutablePath());
+		Map<String, Object> map = new LinkedHashMap<String, Object>();
+		for (Entry<String, ParameterDescription<?>> entry : params.entrySet()) {
+			map.put(entry.getKey(), entry.getValue().defaultValue);
+		}
+		String almostExecutablePath = program.getExecutablePath();
+		File f = new File(almostExecutablePath);
+		map.put(TargetCmdLineLauncher.CMDLINE_ARGS_NAME,
+			TargetCmdLineLauncher.quoteImagePathIfSpaces(f.getAbsolutePath()));
+		return map;
 	}
 
 	/**
@@ -267,23 +338,36 @@ public abstract class AbstractDebuggerProgramLaunchOffer implements DebuggerProg
 	 * @param params the parameters of the model's launcher
 	 * @return the arguments given by the user, or null if cancelled
 	 */
-	protected Map<String, ?> promptLauncherArgs(Map<String, ParameterDescription<?>> params) {
+	protected Map<String, ?> promptLauncherArgs(TargetLauncher launcher,
+			LaunchConfigurator configurator) {
+		TargetParameterMap params = launcher.getParameters();
 		DebuggerMethodInvocationDialog dialog =
 			new DebuggerMethodInvocationDialog(tool, getButtonTitle(), "Launch", getIcon());
 		// NB. Do not invoke read/writeConfigState
-		Map<String, ?> args = loadLastLauncherArgs(params, true);
-		for (ParameterDescription<?> param : params.values()) {
-			Object val = args.get(param.name);
-			if (val != null) {
-				dialog.setMemorizedArgument(param.name, param.type.asSubclass(Object.class), val);
+		Map<String, ?> args;
+		boolean reset = false;
+		do {
+			args = configurator.configureLauncher(launcher,
+				loadLastLauncherArgs(launcher, true), RelPrompt.BEFORE);
+			for (ParameterDescription<?> param : params.values()) {
+				Object val = args.get(param.name);
+				if (val != null) {
+					dialog.setMemorizedArgument(param.name, param.type.asSubclass(Object.class),
+						val);
+				}
 			}
+			args = dialog.promptArguments(params);
+			if (args == null) {
+				// Cancelled
+				return null;
+			}
+			reset = dialog.isResetRequested();
+			if (reset) {
+				args = generateDefaultLauncherArgs(params);
+			}
+			saveLauncherArgs(args, params);
 		}
-		args = dialog.promptArguments(params);
-		if (args == null) {
-			// Cancelled
-			return null;
-		}
-		saveLauncherArgs(args, params);
+		while (reset);
 		return args;
 	}
 
@@ -302,13 +386,13 @@ public abstract class AbstractDebuggerProgramLaunchOffer implements DebuggerProg
 	 * @param forPrompt true if the user will be confirming the arguments
 	 * @return the loaded arguments, or defaults
 	 */
-	protected Map<String, ?> loadLastLauncherArgs(
-			Map<String, ParameterDescription<?>> params, boolean forPrompt) {
+	protected Map<String, ?> loadLastLauncherArgs(TargetLauncher launcher, boolean forPrompt) {
 		/**
 		 * TODO: Supposedly, per-program, per-user config stuff is being generalized for analyzers.
 		 * Re-examine this if/when that gets merged
 		 */
 		if (program != null) {
+			TargetParameterMap params = launcher.getParameters();
 			ProgramUserData userData = program.getProgramUserData();
 			String property =
 				userData.getStringProperty(TargetCmdLineLauncher.CMDLINE_ARGS_NAME, null);
@@ -316,12 +400,15 @@ public abstract class AbstractDebuggerProgramLaunchOffer implements DebuggerProg
 				try {
 					Element element = XmlUtilities.fromString(property);
 					SaveState state = new SaveState(element);
+					List<String> names = List.of(state.getNames());
 					Map<String, Object> args = new LinkedHashMap<>();
 					for (ParameterDescription<?> param : params.values()) {
-						Object configState =
-							ConfigStateField.getState(state, param.type, param.name);
-						if (configState != null) {
-							args.put(param.name, configState);
+						if (names.contains(param.name)) {
+							Object configState =
+								ConfigStateField.getState(state, param.type, param.name);
+							if (configState != null) {
+								args.put(param.name, configState);
+							}
 						}
 					}
 					if (!args.isEmpty()) {
@@ -335,7 +422,7 @@ public abstract class AbstractDebuggerProgramLaunchOffer implements DebuggerProg
 							e);
 					}
 					Msg.error(this,
-						"Saved launcher args are corrup, or launcher parameters changed. Defaulting.",
+						"Saved launcher args are corrupt, or launcher parameters changed. Defaulting.",
 						e);
 				}
 			}
@@ -345,25 +432,32 @@ public abstract class AbstractDebuggerProgramLaunchOffer implements DebuggerProg
 		}
 
 		return new LinkedHashMap<>();
-
 	}
 
 	/**
 	 * Obtain the launcher args
 	 * 
 	 * <p>
-	 * This should either call {@link #promptLauncherArgs(Map))} or
-	 * {@link #loadLastLauncherArgs(Map, boolean))}. Note if choosing the latter, the user will not
-	 * be prompted to confirm.
+	 * This should either call {@link #promptLauncherArgs(TargetLauncher,LaunchConfigurator)} or
+	 * {@link #loadLastLauncherArgs(TargetLauncher, boolean)}. Note if choosing the latter, the user
+	 * will not be prompted to confirm.
 	 * 
-	 * @param params the parameters of the model's launcher
+	 * @param launcher the model's launcher
+	 * @param prompt true to prompt the user, false to use saved arguments
+	 * @param configurator a means of configuring the launcher
 	 * @return the chosen arguments, or null if the user cancels at the prompt
 	 */
-	public Map<String, ?> getLauncherArgs(Map<String, ParameterDescription<?>> params,
-			boolean prompt) {
+	public Map<String, ?> getLauncherArgs(TargetLauncher launcher, boolean prompt,
+			LaunchConfigurator configurator) {
 		return prompt
-				? promptLauncherArgs(params)
-				: loadLastLauncherArgs(params, false);
+				? configurator.configureLauncher(launcher,
+					promptLauncherArgs(launcher, configurator), RelPrompt.AFTER)
+				: configurator.configureLauncher(launcher, loadLastLauncherArgs(launcher, false),
+					RelPrompt.NONE);
+	}
+
+	public Map<String, ?> getLauncherArgs(TargetLauncher launcher, boolean prompt) {
+		return getLauncherArgs(launcher, prompt, LaunchConfigurator.NOP);
 	}
 
 	/**
@@ -422,15 +516,16 @@ public abstract class AbstractDebuggerProgramLaunchOffer implements DebuggerProg
 	}
 
 	protected CompletableFuture<DebuggerObjectModel> connect(DebuggerModelService service,
-			boolean prompt) {
+			boolean prompt, LaunchConfigurator configurator) {
 		DebuggerModelFactory factory = getModelFactory();
+		configurator.configureConnector(factory);
 		if (prompt) {
 			return service.showConnectDialog(factory);
 		}
 		return factory.build().thenApplyAsync(m -> {
 			service.addModel(m);
 			return m;
-		});
+		}, SwingExecutorService.LATER);
 	}
 
 	protected CompletableFuture<TargetLauncher> findLauncher(DebuggerObjectModel m) {
@@ -445,17 +540,47 @@ public abstract class AbstractDebuggerProgramLaunchOffer implements DebuggerProg
 
 	// Eww.
 	protected CompletableFuture<Void> launch(TargetLauncher launcher,
-			boolean prompt) {
-		Map<String, ?> args = getLauncherArgs(launcher.getParameters(), prompt);
+			boolean prompt, LaunchConfigurator configurator, TaskMonitor monitor) {
+		Map<String, ?> args = getLauncherArgs(launcher, prompt, configurator);
 		if (args == null) {
 			throw new CancellationException();
 		}
-		return launcher.launch(args);
+		return AsyncTimer.DEFAULT_TIMER.mark()
+				.timeOut(
+					launcher.launch(args), getTimeoutMillis(), () -> onTimedOutLaunch(monitor));
+	}
+
+	protected void checkCancelled(TaskMonitor monitor) {
+		if (monitor.isCancelled()) {
+			throw new CancellationException("User cancelled");
+		}
+	}
+
+	protected TargetLauncher onTimedOutFindLauncher(TaskMonitor monitor) {
+		checkCancelled(monitor);
+		monitor.setMessage("Timed out finding the launcher. Aborting.");
+		JOptionPane.showMessageDialog(null, HTML + "Timed out finding the launcher. " +
+			"This indicates an error in the implementation of the connector and/or the launcher " +
+			"opinion. Try again, and/or report the bug.",
+			getMenuParentTitle(), JOptionPane.ERROR_MESSAGE);
+		throw new CancellationException("Timed out");
+	}
+
+	protected Void onTimedOutLaunch(TaskMonitor monitor) {
+		checkCancelled(monitor);
+		monitor.setMessage("Timed out waiting for launch. Aborting.");
+		JOptionPane.showMessageDialog(null, HTML +
+			"Timed out waiting for launch. " + NO_PAUSE_DIAGNOSTIC_MESSAGE,
+			getMenuParentTitle(), JOptionPane.ERROR_MESSAGE);
+		throw new CancellationException("Timed out");
 	}
 
 	protected TargetObject onTimedOutTarget(TaskMonitor monitor) {
+		checkCancelled(monitor);
 		monitor.setMessage("Timed out waiting for target. Aborting.");
-		Msg.showError(this, null, getButtonTitle(), "Timed out waiting for target.");
+		JOptionPane.showMessageDialog(null, HTML +
+			"Timed out waiting for target. " + NO_PAUSE_DIAGNOSTIC_MESSAGE,
+			getMenuParentTitle(), JOptionPane.ERROR_MESSAGE);
 		throw new CancellationException("Timed out");
 	}
 
@@ -472,12 +597,28 @@ public abstract class AbstractDebuggerProgramLaunchOffer implements DebuggerProg
 
 	protected TraceRecorder onTimedOutRecorder(TaskMonitor monitor, DebuggerModelService service,
 			TargetObject target) {
+		checkCancelled(monitor);
 		monitor.setMessage("Timed out waiting for recording. Invoking the recorder.");
-		return service.recordTargetPromptOffers(target);
+		TraceRecorder recorder = service.recordTargetPromptOffers(target);
+		if (recorder == null) {
+			throw new CancellationException("User cancelled at record dialog");
+		}
+		DebuggerTraceManagerService traceManager =
+			tool.getService(DebuggerTraceManagerService.class);
+		if (traceManager != null) {
+			Trace trace = recorder.getTrace();
+			Swing.runLater(() -> {
+				traceManager.openTrace(trace);
+				traceManager.activate(traceManager.resolveTrace(trace),
+					ActivationCause.START_RECORDING);
+			});
+		}
+		return recorder;
 	}
 
 	protected Void onTimedOutMapping(TaskMonitor monitor,
 			DebuggerStaticMappingService mappingService, TraceRecorder recorder) {
+		checkCancelled(monitor);
 		monitor.setMessage("Timed out waiting for module map. Invoking the mapper.");
 		Collection<ModuleMapEntry> mapped;
 		try {
@@ -499,51 +640,85 @@ public abstract class AbstractDebuggerProgramLaunchOffer implements DebuggerProg
 	}
 
 	@Override
-	public CompletableFuture<Void> launchProgram(TaskMonitor monitor, boolean prompt) {
+	public CompletableFuture<LaunchResult> launchProgram(TaskMonitor monitor, PromptMode mode,
+			LaunchConfigurator configurator) {
 		DebuggerModelService service = tool.getService(DebuggerModelService.class);
 		DebuggerStaticMappingService mappingService =
 			tool.getService(DebuggerStaticMappingService.class);
-		monitor.initialize(4);
+		monitor.initialize(6);
 		monitor.setMessage("Connecting");
 		var locals = new Object() {
+			DebuggerObjectModel model;
 			CompletableFuture<TargetObject> futureTarget;
+			TargetObject target;
+			TraceRecorder recorder;
+			Throwable exception;
+			boolean prompt = mode == PromptMode.ALWAYS;
+
+			LaunchResult getResult() {
+				return new LaunchResult(model, target, recorder, exception);
+			}
 		};
-		return connect(service, prompt).thenComposeAsync(m -> {
+		return connect(service, locals.prompt, configurator).thenCompose(m -> {
+			checkCancelled(monitor);
+			locals.model = m;
 			monitor.incrementProgress(1);
 			monitor.setMessage("Finding Launcher");
-			return findLauncher(m);
-		}, SwingExecutorService.LATER).thenCompose(l -> {
+			return AsyncTimer.DEFAULT_TIMER.mark()
+					.timeOut(findLauncher(m), getTimeoutMillis(),
+						() -> onTimedOutFindLauncher(monitor));
+		}).thenCompose(l -> {
+			checkCancelled(monitor);
 			monitor.incrementProgress(1);
 			monitor.setMessage("Launching");
 			locals.futureTarget = listenForTarget(l.getModel());
-			return launch(l, prompt);
+			return loop(TypeSpec.VOID, (loop) -> {
+				launch(l, locals.prompt, configurator, monitor).thenAccept(loop::exit)
+						.exceptionally(ex -> {
+							loop.repeat();
+							return null;
+						});
+				locals.prompt = mode != PromptMode.NEVER;
+			});
 		}).thenCompose(__ -> {
+			checkCancelled(monitor);
 			monitor.incrementProgress(1);
 			monitor.setMessage("Waiting for target");
 			return AsyncTimer.DEFAULT_TIMER.mark()
 					.timeOut(locals.futureTarget, getTimeoutMillis(),
 						() -> onTimedOutTarget(monitor));
 		}).thenCompose(t -> {
+			checkCancelled(monitor);
+			locals.target = t;
 			monitor.incrementProgress(1);
 			monitor.setMessage("Waiting for recorder");
 			return AsyncTimer.DEFAULT_TIMER.mark()
 					.timeOut(waitRecorder(service, t), getTimeoutMillis(),
 						() -> onTimedOutRecorder(monitor, service, t));
 		}).thenCompose(r -> {
+			checkCancelled(monitor);
+			locals.recorder = r;
 			monitor.incrementProgress(1);
 			if (r == null) {
 				throw new CancellationException();
 			}
 			monitor.setMessage("Confirming program is mapped to target");
-			CompletableFuture<Void> futureMapped = listenForMapping(mappingService, r);
 			return AsyncTimer.DEFAULT_TIMER.mark()
-					.timeOut(futureMapped, getTimeoutMillis(),
+					.timeOut(listenForMapping(mappingService, r), getTimeoutMillis(),
 						() -> onTimedOutMapping(monitor, mappingService, r));
 		}).exceptionally(ex -> {
-			if (AsyncUtils.unwrapThrowable(ex) instanceof CancellationException) {
-				return null;
+			locals.exception = AsyncUtils.unwrapThrowable(ex);
+			return null;
+		}).thenApply(__ -> {
+			if (locals.exception != null) {
+				monitor.setMessage("Launch error: " + locals.exception);
+				Msg.error(this, "Launch error", locals.exception);
+				return locals.getResult();
 			}
-			return ExceptionUtils.rethrow(ex);
+			monitor.setMessage("Launch successful");
+			monitor.incrementProgress(1);
+			return locals.getResult();
 		});
 	}
+
 }

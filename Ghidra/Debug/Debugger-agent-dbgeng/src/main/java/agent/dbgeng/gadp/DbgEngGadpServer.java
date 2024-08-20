@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,14 +25,33 @@ import java.util.concurrent.ExecutionException;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 
 import agent.dbgeng.gadp.impl.DbgEngGadpServerImpl;
+import ghidra.async.AsyncUtils;
 import ghidra.dbg.agent.AgentWindow;
 import ghidra.util.Msg;
 
 public interface DbgEngGadpServer extends AutoCloseable {
+	public static final String USAGE =
+		"""
+				This is the GADP server for Windows dbgeng.dll.  Usage:
+
+				    gadp-agent-gdbeng [-H HOST/ADDR] [-p PORT] [-i ID] [-t TRANSPORT]
+				                      [-r REMOTE]
+
+				Options:
+
+				  --host/-H          The address of the interface on which to listen.
+				  --port/-p          The TCP port on which to listen for GADP. Default is 12345
+				  --transport/-t     The transport specification for the Process Server. Default
+				                     is tcp:port=11200
+				  --remote/-r        The transport specification for a remote server.
+				
+				Starts a dbgeng.dll-based GADP server "agent". Once the server has started, it
+				will print the interface IP and port.
+				""";
 	public static final String DEFAULT_DBGSRV_TRANSPORT = "tcp:port=11200";
 
 	/**
-	 * The entry point for the SCTL-DBGENG server in stand-alone mode
+	 * The entry point for the GADP-DBGENG server in stand-alone mode
 	 * 
 	 * Run it to see help.
 	 * 
@@ -54,7 +73,7 @@ public interface DbgEngGadpServer extends AutoCloseable {
 	/**
 	 * Create a new instance of the server
 	 * 
-	 * @param addr the address to bind the SCTL server to
+	 * @param addr the address to bind the GADP server to
 	 * @param busId the client ID the server should use on the bus for synthesized commands
 	 * @param dbgSrvTransport the transport specification for the {@code dbgeng.dll} server
 	 * @return the server instance
@@ -70,7 +89,6 @@ public interface DbgEngGadpServer extends AutoCloseable {
 	public class DbgEngRunner {
 		protected InetSocketAddress bindTo;
 		protected List<String> dbgengArgs = new ArrayList<>();
-		protected byte busId = 1;
 		protected String dbgSrvTransport = DEFAULT_DBGSRV_TRANSPORT;
 		protected String remote = null;
 
@@ -84,7 +102,8 @@ public interface DbgEngGadpServer extends AutoCloseable {
 			try (DbgEngGadpServer server = newInstance(bindTo)) {
 				//TODO: fix/test the debugConnect case when args are passed
 				server.startDbgEng(dbgengArgs.toArray(new String[] {})).exceptionally(e -> {
-					Msg.error(this, "Error starting dbgeng/GADP", e);
+					e = AsyncUtils.unwrapThrowable(e);
+					Msg.error(this, "Error starting dbgeng/GADP: " + e);
 					System.exit(-1);
 					return null;
 				});
@@ -132,23 +151,6 @@ public interface DbgEngGadpServer extends AutoCloseable {
 					}
 					iface = ait.next();
 				}
-				else if ("-i".equals(a) || "--bus-id".equals(a)) {
-					if (!ait.hasNext()) {
-						System.err.println("Expected ID");
-						printUsage();
-						System.exit(-1);
-					}
-					String busIdStr = ait.next();
-					try {
-						busId = Byte.parseByte(busIdStr);
-						//dbgengArgs.add(busIdStr);
-					}
-					catch (NumberFormatException e) {
-						System.err.println("Byte required. Got " + busIdStr);
-						printUsage();
-						System.exit(-1);
-					}
-				}
 				else if ("-t".equals(a) || "--transport".equals(a)) {
 					if (!ait.hasNext()) {
 						System.err.println("Expected TRANSPORT");
@@ -179,23 +181,7 @@ public interface DbgEngGadpServer extends AutoCloseable {
 		}
 
 		protected void printUsage() {
-			System.out.println("This is the GADP server for Windows dbgeng.dll.  Usage:");
-			System.out.println();
-			System.out.println("     [-H HOST/ADDR] [-p PORT] [-i ID] [-t TRANSPORT] [-r REMOTE]");
-			System.out.println();
-			System.out.println("Options:");
-			System.out.println(
-				"  --host/-H          The address of the interface on which to listen.");
-			System.out.println("                     Default is localhost");
-			System.out.println(
-				"  --port/-p          The TCP port on which to listen for GADP. Default is 12345");
-			System.out.println(
-				"  --bus-id/-i        The numeric client id for synthetic requests. Default is 1");
-			System.out.println(
-				"  --transport/-t     The transport specification for the Process Server.");
-			System.out.println("                     Default is tcp:port=11200");
-			System.out.println(
-				"  --remote/-r        The transport specification for a remote server.");
+			System.out.println(USAGE);
 		}
 	}
 
@@ -207,7 +193,7 @@ public interface DbgEngGadpServer extends AutoCloseable {
 	CompletableFuture<Void> startDbgEng(String[] args);
 
 	/**
-	 * Get the local address to which the SCTL server is bound.
+	 * Get the local address to which the GADP server is bound.
 	 * 
 	 * @return the local socket address
 	 */
@@ -234,7 +220,7 @@ public interface DbgEngGadpServer extends AutoCloseable {
 	 * {@link #terminate()}, or 3) When an error occurs causing the server to terminate
 	 * unexpectedly. Otherwise, it returns true.
 	 * 
-	 * @returns true if the server is currently running.
+	 * @return true if the server is currently running.
 	 */
 	public boolean isRunning();
 

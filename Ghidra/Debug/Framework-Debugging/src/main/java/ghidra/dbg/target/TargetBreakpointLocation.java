@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,7 +17,7 @@ package ghidra.dbg.target;
 
 import ghidra.dbg.DebuggerTargetObjectIface;
 import ghidra.dbg.target.schema.TargetAttributeType;
-import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressRange;
 
 /**
  * The location of a breakpoint
@@ -27,44 +27,29 @@ import ghidra.program.model.address.Address;
  * breakpoint objects should implement both the specification and location interfaces. If the
  * location is user-togglable independent of its specification, it should implement
  * {@link TargetTogglable} as well.
+ * 
+ * @deprecated Will be removed in 11.3. Portions may be refactored into trace object database.
  */
+@Deprecated(forRemoval = true, since = "11.2")
 @DebuggerTargetObjectIface("BreakpointLocation")
 public interface TargetBreakpointLocation extends TargetObject {
 
-	String ADDRESS_ATTRIBUTE_NAME = PREFIX_INVISIBLE + "address";
-	// NOTE: address and length are treated separately (not using AddressRange)
-	// On GDB, e.g., the length may not be offered immediately.
-	String LENGTH_ATTRIBUTE_NAME = PREFIX_INVISIBLE + "length";
+	String RANGE_ATTRIBUTE_NAME = PREFIX_INVISIBLE + "range";
 	String SPEC_ATTRIBUTE_NAME = PREFIX_INVISIBLE + "spec";
 
 	/**
-	 * The minimum address of this location
-	 * 
-	 * @return the address
-	 */
-	@TargetAttributeType(name = ADDRESS_ATTRIBUTE_NAME, required = true, hidden = true)
-	public default Address getAddress() {
-		return getTypedAttributeNowByName(ADDRESS_ATTRIBUTE_NAME, Address.class, null);
-	}
-
-	/**
-	 * If available, get the length in bytes, of the range covered by the breakpoint.
+	 * The range covered by this location
 	 * 
 	 * <p>
-	 * In most cases, where the length is not available, a length of 1 should be presumed.
+	 * Typically, watchpoints (or access breakpoints) have a length, so the range would cover all
+	 * addresses in the variable being watched. Execution breakpoints likely have a "length" of 1,
+	 * meaning they cover only the address of the trap.
 	 * 
-	 * <p>
-	 * TODO: Should this be Long?
-	 * 
-	 * @return the length, or {@code null} if not known
+	 * @return the address range of the location
 	 */
-	@TargetAttributeType(name = LENGTH_ATTRIBUTE_NAME, hidden = true)
-	public default Integer getLength() {
-		return getTypedAttributeNowByName(LENGTH_ATTRIBUTE_NAME, Integer.class, null);
-	}
-
-	public default int getLengthOrDefault(int fallback) {
-		return getTypedAttributeNowByName(LENGTH_ATTRIBUTE_NAME, Integer.class, fallback);
+	@TargetAttributeType(name = RANGE_ATTRIBUTE_NAME, hidden = true)
+	public default AddressRange getRange() {
+		return getTypedAttributeNowByName(RANGE_ATTRIBUTE_NAME, AddressRange.class, null);
 	}
 
 	/**
@@ -72,7 +57,8 @@ public interface TargetBreakpointLocation extends TargetObject {
 	 * 
 	 * <p>
 	 * If the debugger does not separate specifications from actual breakpoints, then the
-	 * "specification" is this breakpoint. Otherwise, the specification is the parent.
+	 * "specification" is this breakpoint. Otherwise, the specification is identified by an
+	 * attribute, usually a link.
 	 * 
 	 * @return the reference to the specification
 	 */

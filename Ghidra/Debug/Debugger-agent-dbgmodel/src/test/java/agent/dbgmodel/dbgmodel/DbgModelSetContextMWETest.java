@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,8 +21,7 @@ import static org.junit.Assert.assertNotNull;
 import java.io.*;
 import java.util.*;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.*;
 
 import agent.dbgeng.dbgeng.*;
 import agent.dbgeng.dbgeng.DebugBreakpoint.BreakFlags;
@@ -37,6 +36,7 @@ import ghidra.dbg.util.PathUtils;
 import ghidra.test.AbstractGhidraHeadlessIntegrationTest;
 import ghidra.util.Msg;
 
+@Ignore("deprecated")
 public class DbgModelSetContextMWETest extends AbstractGhidraHeadlessIntegrationTest {
 
 	@Before
@@ -83,7 +83,7 @@ public class DbgModelSetContextMWETest extends AbstractGhidraHeadlessIntegration
 
 			private void dumpRegsViaDX() {
 				DebugThreadId id = so.getCurrentThreadId();
-				if (id.id == -1) {
+				if (id.value() == -1) {
 					return;
 				}
 
@@ -102,7 +102,7 @@ public class DbgModelSetContextMWETest extends AbstractGhidraHeadlessIntegration
 
 			private void dumpFrame0ViaDX() {
 				DebugThreadId id = so.getCurrentThreadId();
-				if (id.id == -1) {
+				if (id.value() == -1) {
 					return;
 				}
 
@@ -135,44 +135,44 @@ public class DbgModelSetContextMWETest extends AbstractGhidraHeadlessIntegration
 
 			private void dumpFrame0ViaK() {
 				DebugThreadId id = so.getCurrentThreadId();
-				if (id.id == -1) {
+				if (id.value() == -1) {
 					return;
 				}
 				try {
 					DebugStackInformation stackInfo = control.getStackTrace(0, 0, 0);
 					if (stackInfo.getNumberOfFrames() == 0) {
-						Msg.info(this, "t" + id.id + ".Stack is empty?");
+						Msg.info(this, "t" + id.id() + ".Stack is empty?");
 					}
 					else {
 						DEBUG_STACK_FRAME frame = stackInfo.getFrame(0);
 						Msg.info(this,
-							String.format("t%d.Frame[0].io=%08x", id.id,
+							String.format("t%d.Frame[0].io=%08x", id.id(),
 								frame.InstructionOffset.longValue()));
 					}
 				}
 				catch (Exception e) {
-					Msg.info(this, "Could not read t" + id.id + ".Frame[0].io: " + e);
+					Msg.info(this, "Could not read t" + id.id() + ".Frame[0].io: " + e);
 				}
 			}
 
 			private void dumpPCViaRegsAPI() {
 				DebugThreadId id = so.getCurrentThreadId();
-				if (id.id == -1) {
+				if (id.value() == -1) {
 					return;
 				}
 				try {
-					Msg.info(this, String.format("t%d.rip=%s", id.id,
+					Msg.info(this, String.format("t%d.rip=%s", id.id(),
 						registers.getValueByName("rip")));
 				}
 				catch (Exception e) {
-					Msg.info(this, "Could not read t" + id.id + ".RIP: " + e);
+					Msg.info(this, "Could not read t" + id.id() + ".RIP: " + e);
 				}
 				try {
-					Msg.info(this, String.format("t%d.eip=%s", id.id,
+					Msg.info(this, String.format("t%d.eip=%s", id.id(),
 						registers.getValueByName("eip")));
 				}
 				catch (Exception e) {
-					Msg.info(this, "Could not read t" + id.id + ".EIP: " + e);
+					Msg.info(this, "Could not read t" + id.id() + ".EIP: " + e);
 				}
 			}
 

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,11 +22,12 @@ import java.util.concurrent.CompletableFuture;
 import org.junit.Ignore;
 
 import agent.gdb.manager.GdbManager;
-import agent.gdb.pty.PtySession;
-import agent.gdb.pty.linux.LinuxPty;
+import ghidra.pty.PtySession;
+import ghidra.pty.linux.LinuxIoctls;
+import ghidra.pty.unix.UnixPty;
 import ghidra.util.Msg;
 
-@Ignore("Need compatible GDB version for CI")
+@Ignore("Need compatible GDB version for CI, deprecated")
 public class JoinedGdbManagerTest extends AbstractGdbManagerTest {
 	protected class ReaderThread extends Thread {
 		@Override
@@ -45,13 +46,13 @@ public class JoinedGdbManagerTest extends AbstractGdbManagerTest {
 		}
 	}
 
-	protected LinuxPty ptyUserGdb;
+	protected UnixPty ptyUserGdb;
 	protected PtySession gdb;
 
 	@Override
 	protected CompletableFuture<Void> startManager(GdbManager manager) {
 		try {
-			ptyUserGdb = LinuxPty.openpty();
+			ptyUserGdb = UnixPty.openpty(LinuxIoctls.INSTANCE);
 			manager.start(null);
 			Msg.debug(this, "Starting GDB and invoking new-ui mi2 " + manager.getMi2PtyName());
 

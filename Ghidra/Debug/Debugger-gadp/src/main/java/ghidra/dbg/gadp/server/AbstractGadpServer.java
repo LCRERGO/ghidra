@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,6 +18,7 @@ package ghidra.dbg.gadp.server;
 import java.io.IOException;
 import java.net.SocketAddress;
 import java.nio.channels.AsynchronousSocketChannel;
+import java.util.concurrent.CompletableFuture;
 
 import ghidra.comm.service.AbstractAsyncServer;
 import ghidra.dbg.*;
@@ -26,10 +27,12 @@ import ghidra.dbg.gadp.protocol.Gadp;
 import ghidra.program.model.address.*;
 import ghidra.util.Msg;
 
+@Deprecated(forRemoval = true, since = "11.2")
 public abstract class AbstractGadpServer
 		extends AbstractAsyncServer<AbstractGadpServer, GadpClientHandler>
 		implements DebuggerModelListener {
 	public static final String LISTENING_ON = "GADP Server listening on ";
+	public static final String READY = "GADP Server model ready";
 
 	protected final DebuggerObjectModel model;
 	private boolean exitOnClosed = true;
@@ -40,6 +43,12 @@ public abstract class AbstractGadpServer
 		System.out.println(LISTENING_ON + getLocalAddress());
 
 		model.addModelListener(this);
+	}
+
+	@Override
+	public CompletableFuture<Void> launchAsyncService() {
+		System.out.println(READY);
+		return super.launchAsyncService();
 	}
 
 	public DebuggerObjectModel getModel() {
@@ -53,7 +62,25 @@ public abstract class AbstractGadpServer
 
 	@Override
 	protected GadpClientHandler newHandler(AsynchronousSocketChannel sock) {
+		try {
+			// Accept only the first connection
+			closeServerSocket();
+		}
+		catch (IOException e) {
+			Msg.error(this, "Could not close server socket", e);
+		}
 		return new GadpClientHandler(this, sock);
+	}
+
+	@Override
+	protected void removeHandler(GadpClientHandler handler) {
+		super.removeHandler(handler);
+		try {
+			terminate();
+		}
+		catch (IOException e) {
+			Msg.error(this, "Could not terminate upon disconnect");
+		}
 	}
 
 	protected AddressRange getAddressRange(Gadp.AddressRange range) {
@@ -70,7 +97,6 @@ public abstract class AbstractGadpServer
 
 	@Override
 	public void modelClosed(DebuggerModelClosedReason reason) {
-		System.err.println("Model closed: " + reason);
 		if (exitOnClosed) {
 			System.exit(0);
 		}

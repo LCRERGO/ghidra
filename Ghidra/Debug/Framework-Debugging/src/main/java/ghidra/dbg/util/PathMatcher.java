@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,6 +20,11 @@ import java.util.function.Predicate;
 
 import org.apache.commons.lang3.StringUtils;
 
+/**
+ * @deprecated This will be moved/refactored into trace database. In general, it will still exist,
+ *             but things depending on it are now back on shifting sand.
+ */
+@Deprecated(since = "11.2")
 public class PathMatcher implements PathPredicates {
 	protected static final Set<String> WILD_SINGLETON = Set.of("");
 
@@ -31,6 +36,10 @@ public class PathMatcher implements PathPredicates {
 
 	public void addPattern(PathPattern pattern) {
 		patterns.add(pattern);
+	}
+
+	public void addAll(PathMatcher matcher) {
+		patterns.addAll(matcher.patterns);
 	}
 
 	@Override
@@ -118,6 +127,11 @@ public class PathMatcher implements PathPredicates {
 		return patterns.iterator().next();
 	}
 
+	@Override
+	public Collection<PathPattern> getPatterns() {
+		return patterns;
+	}
+
 	protected void coalesceWilds(Set<String> result) {
 		if (result.contains("")) {
 			result.removeIf(PathUtils::isName);
@@ -179,10 +193,10 @@ public class PathMatcher implements PathPredicates {
 	}
 
 	@Override
-	public PathMatcher applyKeys(List<String> indices) {
+	public PathMatcher applyKeys(Align align, List<String> indices) {
 		PathMatcher result = new PathMatcher();
 		for (PathPattern pat : patterns) {
-			result.addPattern(pat.applyKeys(indices));
+			result.addPattern(pat.applyKeys(align, indices));
 		}
 		return result;
 	}

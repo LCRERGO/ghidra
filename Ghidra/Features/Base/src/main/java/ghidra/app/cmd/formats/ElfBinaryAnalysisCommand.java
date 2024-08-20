@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,6 +17,8 @@ package ghidra.app.cmd.formats;
 
 import java.util.Arrays;
 
+import org.apache.commons.lang3.StringUtils;
+
 import ghidra.app.plugin.core.analysis.AnalysisWorker;
 import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
 import ghidra.app.util.bin.*;
@@ -25,7 +27,6 @@ import ghidra.app.util.bin.format.elf.ElfDynamicType.ElfDynamicValueType;
 import ghidra.app.util.importer.MessageLog;
 import ghidra.app.util.opinion.BinaryLoader;
 import ghidra.framework.cmd.BinaryAnalysisCommand;
-import ghidra.framework.options.Options;
 import ghidra.program.flatapi.FlatProgramAPI;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressOverflowException;
@@ -52,9 +53,7 @@ public class ElfBinaryAnalysisCommand extends FlatProgramAPI
 	@Override
 	public boolean canApply(Program program) {
 		try {
-			Options options = program.getOptions(Program.PROGRAM_INFO);
-			String format = options.getString("Executable Format", null);
-			if (!BinaryLoader.BINARY_NAME.equals(format)) {
+			if (!BinaryLoader.BINARY_NAME.equals(program.getExecutableFormat())) {
 				return false;
 			}
 			Memory memory = program.getMemory();
@@ -77,8 +76,8 @@ public class ElfBinaryAnalysisCommand extends FlatProgramAPI
 		Listing listing = currentProgram.getListing();
 		SymbolTable symbolTable = currentProgram.getSymbolTable();
 
-		ByteProvider provider = new MemoryByteProvider(currentProgram.getMemory(),
-			currentProgram.getAddressFactory().getDefaultAddressSpace());
+		ByteProvider provider =
+			MemoryByteProvider.createDefaultAddressSpaceByteProvider(program, false);
 		try {
 			ElfHeader elf = new ElfHeader(provider, msg -> messages.appendMsg(msg));
 			elf.parse();
@@ -139,7 +138,7 @@ public class ElfBinaryAnalysisCommand extends FlatProgramAPI
 
 		ElfSectionHeader[] stringSections = elf.getSections(ElfSectionHeaderConstants.SHT_STRTAB);
 		for (ElfSectionHeader stringSection : stringSections) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			try {
 				Address addr = addr(stringSection.getOffset());
 				Address maxAddr = addr.addNoWrap(stringSection.getSize() - 1);
@@ -174,7 +173,7 @@ public class ElfBinaryAnalysisCommand extends FlatProgramAPI
 	private void processSectionHeaders(ElfHeader elf, Listing listing) throws Exception {
 		ElfSectionHeader[] sections = elf.getSections();
 		for (int i = 0; i < sections.length; i++) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			String name = sections[i].getNameAsString();
 
 			DataType sectionDT = sections[i].toDataType();
@@ -188,10 +187,8 @@ public class ElfBinaryAnalysisCommand extends FlatProgramAPI
 			cu.setComment(CodeUnit.PLATE_COMMENT,
 				"#" + i + ") " + name + " at 0x" + Long.toHexString(sections[i].getAddress()));
 
-			if (sections[i].getSize() == 0) {
-				continue;
-			}
-			if (sections[i].getType() == ElfSectionHeaderConstants.SHT_NOBITS) {
+			if (sections[i].getType() == ElfSectionHeaderConstants.SHT_NOBITS ||
+				sections[i].getSize() == 0 || sections[i].isInvalidOffset()) {
 				continue;
 			}
 
@@ -229,7 +226,7 @@ public class ElfBinaryAnalysisCommand extends FlatProgramAPI
 
 		ElfProgramHeader[] programHeaders = elf.getProgramHeaders();
 		for (int i = 0; i < programHeaders.length; i++) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Data d = array.getComponent(i);
 			d.setComment(CodeUnit.EOL_COMMENT, programHeaders[i].getComment());
 
@@ -243,7 +240,7 @@ public class ElfBinaryAnalysisCommand extends FlatProgramAPI
 			throws CancelledException {
 		for (ElfProgramHeader programHeader : elf.getProgramHeaders(
 			ElfProgramHeaderConstants.PT_INTERP)) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			long offset = programHeader.getOffset();
 			if (offset == 0) {
 				Msg.warn(this, " Dynamic table appears to have been stripped from binary");
@@ -281,7 +278,7 @@ public class ElfBinaryAnalysisCommand extends FlatProgramAPI
 			BinaryReader reader = new BinaryReader(provider, !program.getMemory().isBigEndian());
 
 			for (int i = 0; i < dynamics.length; i++) {
-				monitor.checkCanceled();
+				monitor.checkCancelled();
 
 				Data dynamicData = dynamicTableData.getComponent(i);
 				if (dynamicData == null) {
@@ -360,7 +357,7 @@ public class ElfBinaryAnalysisCommand extends FlatProgramAPI
 
 		ElfSymbolTable[] symbolTables = elf.getSymbolTables();
 		for (ElfSymbolTable symbolTable2 : symbolTables) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 
 			Address symbolTableAddr = addr(symbolTable2.getFileOffset());
 
@@ -381,12 +378,14 @@ public class ElfBinaryAnalysisCommand extends FlatProgramAPI
 				}
 
 				String name = symbols[j].getNameAsString();
-				long value = Integer.toUnsignedLong((int) symbols[j].getValue());
+				if (StringUtils.isBlank(name)) {
+					continue;
+				}
 
 				try {
 					Address currAddr = symbolTableAddr.add(j * symbolTable2.getEntrySize());
 					listing.setComment(currAddr, CodeUnit.EOL_COMMENT,
-						name + " at 0x" + Long.toHexString(value));
+						name + " at 0x" + Long.toHexString(symbols[j].getValue()));
 				}
 				catch (Exception e) {
 					messages.appendMsg("Could not markup symbol table: " + e);
@@ -404,7 +403,7 @@ public class ElfBinaryAnalysisCommand extends FlatProgramAPI
 		monitor.setMessage("Processing relocation tables...");
 		ElfRelocationTable[] relocationTables = elf.getRelocationTables();
 		for (ElfRelocationTable relocationTable : relocationTables) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			ElfSectionHeader relocationSection = relocationTable.getTableSectionHeader();
 			String relocSectionName = "<section-not-found>";
 			if (relocationSection != null) {

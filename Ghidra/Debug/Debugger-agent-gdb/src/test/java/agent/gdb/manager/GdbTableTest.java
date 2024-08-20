@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,14 +20,12 @@ import static org.junit.Assert.*;
 import java.util.*;
 import java.util.function.Consumer;
 
+import org.junit.Ignore;
 import org.junit.Test;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-
-import agent.gdb.manager.GdbTable;
 import agent.gdb.manager.parsing.GdbMiParser.GdbMiFieldList;
 
+@Ignore("deprecated")
 public class GdbTableTest {
 	protected GdbMiFieldList buildFieldList(Consumer<GdbMiFieldList.Builder> conf) {
 		GdbMiFieldList.Builder builder = GdbMiFieldList.builder();
@@ -35,16 +33,16 @@ public class GdbTableTest {
 		return builder.build();
 	}
 
-	protected <K, V> Map<K, V> buildMap(Consumer<ImmutableMap.Builder<K, V>> conf) {
-		ImmutableMap.Builder<K, V> builder = ImmutableMap.builder();
+	protected <K, V> Map<K, V> buildMap(Consumer<Map<K, V>> conf) {
+		Map<K, V> builder = new HashMap<>();
 		conf.accept(builder);
-		return builder.build();
+		return Map.copyOf(builder);
 	}
 
-	protected <E> List<E> buildList(Consumer<ImmutableList.Builder<E>> conf) {
-		ImmutableList.Builder<E> builder = ImmutableList.builder();
+	protected <E> List<E> buildList(Consumer<List<E>> conf) {
+		List<E> builder = new ArrayList<>();
 		conf.accept(builder);
-		return builder.build();
+		return List.copyOf(builder);
 	}
 
 	protected GdbTable buildTestTable() {

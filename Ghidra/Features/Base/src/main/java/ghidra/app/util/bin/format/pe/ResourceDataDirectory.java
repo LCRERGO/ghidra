@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -157,6 +157,16 @@ public class ResourceDataDirectory extends DataDirectory {
 	 */
 	public final static byte RT_MANIFEST = 24;
 
+	/**
+	 * Gets a program property name to represent PE resource property with the given key name
+	 * 
+	 * @param key The key name
+	 * @return A program property name to represent PE resource property with the given key name
+	 */
+	public static String getPeResourceProperty(String key) {
+		return "PE Property[" + key.replaceAll("\\.", "_dot_") + "]";
+	}
+
 	private ResourceDirectory rootDirectory;
 
 	public static Set<Integer> directoryMap;
@@ -177,14 +187,13 @@ public class ResourceDataDirectory extends DataDirectory {
 
 	@Override
 	public void markup(Program program, boolean isBinary, TaskMonitor monitor, MessageLog log,
-			NTHeader ntHeader)
-			throws DuplicateNameException, CodeUnitInsertionException, IOException {
+			NTHeader nt) throws DuplicateNameException, CodeUnitInsertionException, IOException {
 
 		if (rootDirectory == null) {
 			return;
 		}
 		monitor.setMessage("[" + program.getName() + "]: resources...");
-		Address addr = PeUtils.getMarkupAddress(program, isBinary, ntHeader, virtualAddress);
+		Address addr = PeUtils.getMarkupAddress(program, isBinary, nt, virtualAddress);
 		if (!program.getMemory().contains(addr)) {
 			return;
 		}
@@ -252,6 +261,19 @@ public class ResourceDataDirectory extends DataDirectory {
 						try {
 							if (program.getMemory().getInt(addr) == 0x46464952) {
 								dataType = new WAVEDataType();
+							}
+						}
+						catch (MemoryAccessException e) {
+							// ignore - let createData produce error
+						}
+						PeUtils.createData(program, addr, dataType, log);
+					}
+					else if (info.getName().startsWith("Rsrc_MIDI")) {
+						DataType dataType = null;
+						// Check for MIDI magic number
+						try {
+							if (program.getMemory().getInt(addr) == 0x6468544d) {
+								dataType = new MIDIDataType();
 							}
 						}
 						catch (MemoryAccessException e) {
@@ -379,14 +401,12 @@ public class ResourceDataDirectory extends DataDirectory {
 			Msg.error(this, "Invalid resource data: " + e.getMessage(), e);
 		}
 
-		Address resourceBase =
-			PeUtils.getMarkupAddress(program, isBinary, ntHeader, virtualAddress);
+		Address resourceBase = PeUtils.getMarkupAddress(program, isBinary, nt, virtualAddress);
 		markupDirectory(rootDirectory, resourceBase, resourceBase, program, isBinary, monitor, log);
 	}
 
 	private void processVersionInfo(Address addr, ResourceInfo info, Program program,
 			MessageLog log, TaskMonitor monitor) throws IOException {
-		Options infoList = program.getOptions(Program.PROGRAM_INFO);
 		VS_VERSION_INFO versionInfo = null;
 		try {
 			int ptr = ntHeader.rvaToPointer(info.getAddress());
@@ -409,13 +429,14 @@ public class ResourceDataDirectory extends DataDirectory {
 			markupChild(child, addr, program, log, monitor);
 		}
 
+		Options programInfoOptions = program.getOptions(Program.PROGRAM_INFO);
 		String[] keys = versionInfo.getKeys();
 		for (String key : keys) {
 			if (monitor.isCancelled()) {
 				return;
 			}
 			String value = versionInfo.getValue(key);
-			infoList.setString(key, value);
+			programInfoOptions.setString(getPeResourceProperty(key), value);
 		}
 	}
 
@@ -527,7 +548,7 @@ public class ResourceDataDirectory extends DataDirectory {
 
 			int offset = 0;
 			//get first structure
-			Data componentAt = data.getComponentAt(offset);
+			Data componentAt = data.getComponentContaining(offset);
 			if (componentAt.isStructure() &&
 				componentAt.getBaseDataType().getName().equals("DLGTEMPLATE")) {
 
@@ -544,7 +565,7 @@ public class ResourceDataDirectory extends DataDirectory {
 				//get three or five components after initial structure
 				for (int i = 0; i < numAfter; i++) {
 					offset += componentAt.getLength();
-					componentAt = data.getComponentAt(offset);
+					componentAt = data.getComponentContaining(offset);
 					comment.append("\n" + afterTemplate[i] + ": ");
 					if (componentAt.getBaseDataType().getName().equals("short")) {
 						comment.append(componentAt.getDefaultValueRepresentation());
@@ -570,14 +591,14 @@ public class ResourceDataDirectory extends DataDirectory {
 				comment.append("\n");
 				while (currentItem < numItems) {
 					offset += componentAt.getLength();
-					componentAt = data.getComponentAt(offset);
+					componentAt = data.getComponentContaining(offset);
 					if (componentAt.getBaseDataType().getName().equals("DLGITEMTEMPLATE")) {
 						currentItem++;
 						comment.append("\nItem " + currentItem + ": ");
 						//loop over three items after each item structure
 						for (int i = 0; i < 3; i++) {
 							offset += componentAt.getLength();
-							componentAt = data.getComponentAt(offset);
+							componentAt = data.getComponentContaining(offset);
 							comment.append("\n   " + afterItem[i] + ": ");
 							if (componentAt.getBaseDataType().getName().startsWith("short[")) {
 								//no other info
@@ -670,7 +691,7 @@ public class ResourceDataDirectory extends DataDirectory {
 					}
 
 					String menuString = fixupStringRepForDisplay(
-						data.getComponentAt(offset).getDefaultValueRepresentation());
+						data.getComponentContaining(offset).getDefaultValueRepresentation());
 					menuString = menuString.replaceAll("\"", "");
 					if (menuString.equals("")) {
 						comment.append("-------------------\n");
@@ -730,13 +751,5 @@ public class ResourceDataDirectory extends DataDirectory {
 			}
 		}
 		return buff.toString();
-	}
-
-	/**
-	 * @see ghidra.app.util.bin.StructConverter#toDataType()
-	 */
-	@Override
-	public DataType toDataType() throws DuplicateNameException, IOException {
-		return rootDirectory.toDataType();
 	}
 }

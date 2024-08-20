@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,6 +17,9 @@ package ghidra.dbg.target;
 
 import java.util.Collection;
 import java.util.concurrent.CompletableFuture;
+
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 
 import ghidra.dbg.DebugModelConventions;
 import ghidra.dbg.DebuggerTargetObjectIface;
@@ -42,7 +45,9 @@ import ghidra.dbg.util.TargetDataTypeConverter;
  * See {@link TargetDataTypeConverter} to get a grasp of the conventions
  * 
  * @param <T> the type of this object
+ * @deprecated Will be removed in 11.3. Portions may be refactored into trace object database.
  */
+@Deprecated(forRemoval = true, since = "11.2")
 @DebuggerTargetObjectIface("DataType")
 public interface TargetNamedDataType extends TargetObject, TargetDataType {
 
@@ -56,6 +61,13 @@ public interface TargetNamedDataType extends TargetObject, TargetDataType {
 
 	String FUNCTION_RETURN_INDEX = "return";
 	String FUNCTION_PARAMETER_DIM = "param";
+
+	@Override
+	default JsonElement toJson() {
+		JsonObject object = new JsonObject();
+		object.addProperty("path", getJoinedPath("."));
+		return object;
+	}
 
 	/**
 	 * Get the members of this data type in order.

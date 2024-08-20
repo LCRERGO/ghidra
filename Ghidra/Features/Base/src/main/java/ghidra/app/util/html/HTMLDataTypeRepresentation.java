@@ -40,9 +40,10 @@ public abstract class HTMLDataTypeRepresentation {
 	protected final static int MAX_CHARACTER_LENGTH = 80;
 	protected final static int MAX_LINE_LENGTH = MAX_CHARACTER_LENGTH * 3;
 
-	// HTML Tag constants
-	protected static final String HTML_OPEN = "<HTML>";
-	protected static final String HTML_CLOSE = "</HTML>";
+	// HTML Tag constants. Intentionally lower-case to match external checks for isHtml(), some of
+	// which check case-sensitive for "<html>"
+	protected static final String HTML_OPEN = "<html>";
+	protected static final String HTML_CLOSE = "</html>";
 
 	// single HTML space
 	protected static final String HTML_SPACE = "&nbsp;";
@@ -288,31 +289,6 @@ public abstract class HTMLDataTypeRepresentation {
 		return newList;
 	}
 
-	/* Returns a data type that can later be located */
-	protected static DataType getLocatableDataType(DataType type) {
-
-		if (type instanceof DefaultDataType) {
-			return null; // special case; for some reason this type has a universal ID
-		}
-
-		UniversalID id = type.getUniversalID();
-		if (id == null) {
-			type = DataTypeUtils.getNamedBaseDataType(type);
-			id = type.getUniversalID();
-		}
-
-		if (id == null) {
-			return null;
-		}
-
-		DataTypeManager manager = type.getDataTypeManager();
-		if (manager == null) {
-			return null;
-		}
-
-		return type;
-	}
-
 	protected String originalHTMLData;
 
 	/** Default constructor for those who promise to later set the HTML text */
@@ -325,11 +301,11 @@ public abstract class HTMLDataTypeRepresentation {
 	 */
 	protected HTMLDataTypeRepresentation(String htmlText) {
 		this.originalHTMLData = htmlText.trim();
-		// NOTE: the text expected here should not have <HTML></HTML> tags!
+		// NOTE: the text expected here should not have <html></html> tags!
 		boolean htmlStart = StringUtilities.startsWithIgnoreCase(htmlText, HTML_OPEN);
 		boolean htmlEnd = StringUtilities.startsWithIgnoreCase(htmlText, HTML_CLOSE);
 		if (htmlStart || htmlEnd) {
-			throw new AssertException("Invalid HTML format: text must not include HTML tag");
+			throw new AssertException("Invalid HTML format: text must not include <html> tag");
 		}
 	}
 
@@ -403,10 +379,13 @@ public abstract class HTMLDataTypeRepresentation {
 		if (length < 0) {
 			return new TextLine(" <i>Unsized</i>");
 		}
+
 		if (dataType.isZeroLength()) {
-			length = 0;
+			return new TextLine("0");
 		}
-		return new TextLine(Integer.toString(length));
+
+		return new TextLine(
+			Integer.toString(length) + " (" + NumericUtilities.toHexString(length) + ")");
 	}
 
 	private static boolean canLinkDataType(DataType dt) {

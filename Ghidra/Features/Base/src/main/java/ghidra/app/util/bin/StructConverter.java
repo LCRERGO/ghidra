@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -77,6 +77,16 @@ public interface StructConverter {
 	public final static DataType IBO64 = IBO64DataType.dataType;
 
 	/**
+	 * Reusable Unsigned LEB128 dynamic length data type
+	 */
+	public static final UnsignedLeb128DataType ULEB128 = UnsignedLeb128DataType.dataType;
+
+	/**
+	 * Reusable Signed LEB128 dynamic length data type
+	 */
+	public static final SignedLeb128DataType SLEB128 = SignedLeb128DataType.dataType;
+
+	/**
 	 * Returns a structure datatype representing the
 	 * contents of the implementor of this interface.
 	 * <p> 
@@ -97,6 +107,7 @@ public interface StructConverter {
 	 *         the implementor of this interface
 	 * 
 	 * @throws DuplicateNameException when a datatype of the same name already exists
+	 * @throws IOException if an IO-related error occurs
 	 * 
 	 * @see ghidra.program.model.data.StructureDataType
 	 */

@@ -19,6 +19,7 @@ import java.awt.*;
 import java.awt.dnd.DnDConstants;
 import java.awt.dnd.DropTargetDragEvent;
 import java.awt.event.*;
+import java.util.List;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
@@ -30,11 +31,13 @@ import docking.widgets.OptionDialog;
 import docking.widgets.button.GRadioButton;
 import docking.widgets.fieldpanel.support.FieldSelection;
 import docking.widgets.label.GDLabel;
+import generic.theme.GThemeDefaults.Colors.Palette;
+import generic.theme.GThemeDefaults.Colors.Viewport;
 import ghidra.app.plugin.core.compositeeditor.BitFieldPlacementComponent.BitAttributes;
 import ghidra.program.model.data.*;
 import ghidra.program.model.data.Composite;
-import ghidra.util.HelpLocation;
 import ghidra.util.InvalidNameException;
+import ghidra.util.Swing;
 import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.layout.PairLayout;
 import ghidra.util.layout.VerticalLayout;
@@ -75,12 +78,12 @@ public class CompEditorPanel extends CompositeEditorPanel {
 	private JLabel actualAlignmentLabel;
 	private JTextField actualAlignmentValueTextField;
 
+	private List<Component> focusList;
+
 	private BitFieldPlacementComponent bitViewComponent;
 
 	private DocumentListener fieldDocListener;
-
 	private ActionListener fieldActionListener;
-
 	private FocusListener fieldFocusListener;
 
 	private boolean updatingSize;
@@ -88,7 +91,7 @@ public class CompEditorPanel extends CompositeEditorPanel {
 	/**
 	 * Constructor for a panel that has a blank line in unlocked mode and
 	 * composite name and description that are editable.
-	 * 
+	 *
 	 * @param model
 	 *            the model for editing the composite data type
 	 * @param provider
@@ -221,7 +224,7 @@ public class CompEditorPanel extends CompositeEditorPanel {
 			new JScrollPane(bitViewComponent, ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER,
 				ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
 
-		bitViewScrollPane.getViewport().setBackground(getBackground());
+		bitViewScrollPane.getViewport().setBackground(Viewport.UNEDITABLE_BACKGROUND);
 		bitViewScrollPane.setBorder(null);
 
 		// establish default preferred size of panel based upon fixed preferred height of bitViewComponent
@@ -232,11 +235,35 @@ public class CompEditorPanel extends CompositeEditorPanel {
 		return bitViewPanel;
 	}
 
+	@Override
+	protected List<Component> getFocusComponents() {
+		if (focusList == null) {
+			//@formatter:off
+			focusList = List.of(
+				
+				table,
+				searchPanel.getTextField(),
+				nameTextField,
+				descriptionTextField,
+				sizeTextField,
+				
+				// add the first radio button; the rest are reachable via arrow keys
+				defaultAlignButton, 
+				packingEnablementButton,
+				
+				// add the first radio button; the rest are reachable via arrow keys
+				defaultPackingButton
+			);
+			//@formatter:on
+		}
+		return focusList;
+	}
+
 	/**
 	 * Create the Info Panel that is horizontally resizable. The panel contains
 	 * the name, category, data type, size, and edit mode for the current
 	 * structure in the editor.
-	 * 
+	 *
 	 * @return JPanel the completed composite data type information panel
 	 */
 	@Override
@@ -286,10 +313,7 @@ public class CompEditorPanel extends CompositeEditorPanel {
 		gridBagConstraints.gridwidth = 4;
 		infoPanel.add(nameTextField, gridBagConstraints);
 
-		if (helpManager != null) {
-			helpManager.registerHelp(nameTextField,
-				new HelpLocation(provider.getHelpTopic(), provider.getHelpName() + "_" + "Name"));
-		}
+		provider.registerHelp(nameTextField, "Name");
 	}
 
 	private void setupDescription() {
@@ -316,10 +340,7 @@ public class CompEditorPanel extends CompositeEditorPanel {
 		gridBagConstraints.gridwidth = 4;
 		infoPanel.add(descriptionTextField, gridBagConstraints);
 
-		if (helpManager != null) {
-			helpManager.registerHelp(descriptionTextField, new HelpLocation(provider.getHelpTopic(),
-				provider.getHelpName() + "_" + "Description"));
-		}
+		provider.registerHelp(descriptionTextField, "Description");
 	}
 
 	private void setupCategory() {
@@ -349,8 +370,8 @@ public class CompEditorPanel extends CompositeEditorPanel {
 
 	@Override
 	public Dimension getPreferredSize() {
-		// make sure our preferred size accounts for that of our components that the user 
-		// may choose to show 
+		// make sure our preferred size accounts for that of our components that the user
+		// may choose to show
 		Dimension preferredSize = super.getPreferredSize();
 		if (alignPanel.isShowing()) {
 			return preferredSize;
@@ -385,16 +406,15 @@ public class CompEditorPanel extends CompositeEditorPanel {
 
 		alignPanel = new JPanel(new GridBagLayout());
 		TitledBorder border = BorderFactory.createTitledBorder("align (minimum)");
-//		border.setTitlePosition(TitledBorder.ABOVE_TOP);
+
 		alignPanel.setBorder(border);
-		if (helpManager != null) {
-			helpManager.registerHelp(alignPanel,
-				new HelpLocation(provider.getHelpTopic(), provider.getHelpName() + "_" + "Align"));
-		}
+		provider.registerHelp(alignPanel, "Align");
+
 		String alignmentToolTip =
-			"<HTML>The <B>align</B> control allows the overall minimum alignment of this<BR>" +
+			"<html>The <B>align</B> control allows the overall minimum alignment of this<BR>" +
 				"data type to be specified.  The actual computed alignment<BR>" +
-				"may be any multiple of this value.   <font color=blue size=\"-2\">(&lt;F1&gt; for help)</HTML>";
+				"may be any multiple of this value.   " + "<font color=\"" +
+				Palette.BLUE.toHexString() + "\" size=\"-2\">(&lt;F1&gt; for help)</html>";
 		alignPanel.setToolTipText(alignmentToolTip);
 
 		addMinimumAlignmentComponents();
@@ -446,62 +466,59 @@ public class CompEditorPanel extends CompositeEditorPanel {
 
 	private void setupDefaultMinAlignButton() {
 		defaultAlignButton.setName("Default Alignment");
-		String alignmentToolTip =
-			"<HTML>Sets this data type to use <B>default</B> alignment.<BR>" +
-				"If packing is disabled, the default will be 1 byte.  If packing<BR>" +
-				"is enabled, the alignment is computed based upon the pack<BR>" +
-				"setting and the alignment of each component data type.</HTML>";
+		String alignmentToolTip = "<html>Sets this data type to use <B>default</B> alignment.<BR>" +
+			"If packing is disabled, the default will be 1 byte.  If packing<BR>" +
+			"is enabled, the alignment is computed based upon the pack<BR>" +
+			"setting and the alignment of each component data type.</html>";
 
 		defaultAlignButton.addActionListener(e -> {
 			((CompEditorModel) model).setAlignmentType(AlignmentType.DEFAULT, -1);
 		});
 
 		defaultAlignButton.setToolTipText(alignmentToolTip);
-		if (helpManager != null) {
-			helpManager.registerHelp(defaultAlignButton, new HelpLocation(
-				provider.getHelpTopic(), provider.getHelpName() + "_" + "Align"));
-		}
+		provider.registerHelp(defaultAlignButton, "Align");
 	}
 
 	private void setupMachineMinAlignButton() {
 		machineAlignButton.setName("Machine Alignment");
 		String alignmentToolTip =
-			"<HTML>Sets this data type to use the <B>machine</B> alignment<BR>" +
+			"<html>Sets this data type to use the <B>machine</B> alignment<BR>" +
 				"as specified by the compiler specification.  If packing is<BR>" +
 				"enabled, the computed alignment of this composite should be<BR>" +
-				"the machine alignment value.</HTML>";
+				"the machine alignment value.</html>";
 		machineAlignButton.setToolTipText(alignmentToolTip);
 
 		machineAlignButton.addActionListener(e -> {
 			((CompEditorModel) model).setAlignmentType(AlignmentType.MACHINE, -1);
 		});
 
-		if (helpManager != null) {
-			helpManager.registerHelp(machineAlignButton, new HelpLocation(
-				provider.getHelpTopic(), provider.getHelpName() + "_" + "Align"));
-		}
+		provider.registerHelp(machineAlignButton, "Align");
 	}
 
 	private void setupExplicitAlignButton() {
 		explicitAlignButton.setName("Explicit Alignment");
 		String alignmentToolTip =
-			"<HTML>Sets this data type to use the <B>explicit</B> alignment value<BR>" +
+			"<html>Sets this data type to use the <B>explicit</B> alignment value<BR>" +
 				"specified.  If packing is enabled, the computed alignment of<BR>" +
-				"this composite may be any multiple of this value.</HTML>";
+				"this composite may be any multiple of this value.</html>";
 		explicitAlignButton.setToolTipText(alignmentToolTip);
 
-		explicitAlignButton.addActionListener(e -> {
-			chooseExplicitAlign();
+		// As a convenience, when this radio button is focused, change focus to the editor field
+		explicitAlignButton.addFocusListener(new FocusAdapter() {
+			@Override
+			public void focusGained(FocusEvent e) {
+				explicitAlignTextField.requestFocus();
+			}
 		});
+		explicitAlignButton.addActionListener(e -> chooseExplicitAlign());
 
-		if (helpManager != null) {
-			helpManager.registerHelp(explicitAlignButton, new HelpLocation(
-				provider.getHelpTopic(), provider.getHelpName() + "_" + "Align"));
-		}
+		provider.registerHelp(explicitAlignButton, "Align");
 
 		explicitAlignTextField.setName("Explicit Alignment Value");
 		explicitAlignTextField.setEditable(true);
 		explicitAlignTextField.addActionListener(e -> adjustExplicitMinimumAlignmentValue());
+		explicitAlignTextField
+				.addKeyListener(new UpAndDownKeyListener(defaultAlignButton, machineAlignButton));
 
 		explicitAlignTextField.addFocusListener(new FocusListener() {
 			@Override
@@ -520,10 +537,7 @@ public class CompEditorPanel extends CompositeEditorPanel {
 		});
 
 		explicitAlignTextField.setToolTipText(alignmentToolTip);
-		if (helpManager != null) {
-			helpManager.registerHelp(explicitAlignTextField, new HelpLocation(
-				provider.getHelpTopic(), provider.getHelpName() + "_" + "Align"));
-		}
+		provider.registerHelp(explicitAlignTextField, "Align");
 
 		refreshGUIMinimumAlignmentValue(); // Display the initial value.
 	}
@@ -553,10 +567,10 @@ public class CompEditorPanel extends CompositeEditorPanel {
 	private void setupActualAlignment() {
 		GridBagConstraints gridBagConstraints = new GridBagConstraints();
 		String actualAlignmentToolTip =
-			"<HTML>The actual alignment to be used for this data type.<BR>" +
+			"<html>The actual alignment to be used for this data type.<BR>" +
 				"A combination of the pack and alignment settings made to this datatype<BR>" +
 				"combined with alignments of the individual components are used to<BR>" +
-				"to compute the actual alignment of this datatype.</HTML>";
+				"to compute the actual alignment of this datatype.</html>";
 
 		JPanel actualAlignmentPanel = new JPanel(new BorderLayout());
 		actualAlignmentLabel = new GDLabel("Alignment:");
@@ -570,14 +584,15 @@ public class CompEditorPanel extends CompositeEditorPanel {
 		infoPanel.add(actualAlignmentPanel, gridBagConstraints);
 
 		actualAlignmentValueTextField = new JTextField(8);
-		actualAlignmentValueTextField.setText("" + ((CompEditorModel) model).getActualAlignment());
+		int actualAlignment = ((CompEditorModel) model).getActualAlignment();
+		actualAlignmentValueTextField.setText(Integer.toString(actualAlignment));
 		actualAlignmentValueTextField.setToolTipText(actualAlignmentToolTip);
 		actualAlignmentValueTextField.setEditable(false);
-		if (helpManager != null) {
-			helpManager.registerHelp(actualAlignmentValueTextField, new HelpLocation(
-				provider.getHelpTopic(), provider.getHelpName() + "_" + "ActualAlignment"));
-		}
+		actualAlignmentValueTextField.setEnabled(false);
+		actualAlignmentValueTextField.setBackground(getBackground());
 		actualAlignmentValueTextField.setName("Actual Alignment Value");
+
+		provider.registerHelp(actualAlignmentValueTextField, "ActualAlignment");
 
 		gridBagConstraints.insets = VERTICAL_INSETS;
 		gridBagConstraints.anchor = GridBagConstraints.LINE_START;
@@ -586,7 +601,6 @@ public class CompEditorPanel extends CompositeEditorPanel {
 		gridBagConstraints.gridx = 3;
 		gridBagConstraints.gridy = 3;
 		infoPanel.add(actualAlignmentValueTextField, gridBagConstraints);
-		actualAlignmentValueTextField.setBackground(new Color(getBackground().getRGB()));
 	}
 
 	private void setupPacking() {
@@ -615,10 +629,7 @@ public class CompEditorPanel extends CompositeEditorPanel {
 		packingGroup.add(defaultPackingButton);
 		packingGroup.add(explicitPackingButton);
 
-		if (helpManager != null) {
-			helpManager.registerHelp(packingPanel, new HelpLocation(provider.getHelpTopic(),
-				provider.getHelpName() + "_" + "Pack"));
-		}
+		provider.registerHelp(packingPanel, "Pack");
 
 		addPackingComponents(innerPanel);
 
@@ -666,55 +677,75 @@ public class CompEditorPanel extends CompositeEditorPanel {
 //		gridPanel.add(disabledPackingButton, gridBagConstraints);
 	}
 
+	protected boolean choosePacking() {
+		int choice = OptionDialog.showYesNoDialog(this, "Use Packing?",
+			"<html>Applying packing may drastically change this structure.<BR><BR>Use Packing?");
+		return choice == OptionDialog.YES_OPTION;
+	}
+
 	private void setupPackingEnablementButton() {
 		packingEnablementButton.setName("Packing Enablement");
 		String packingToolTipText =
-			"<HTML>Enable packing when details of all components are known (including sizing and alignment).<BR>" +
-				"Disable packing when Reverse Engineering composite.   <font color=blue size=\"-2\">(&lt;F1&gt; for help)</font></HTML>";
+			"<html>Enable packing when details of all components are known (including sizing and" +
+				" alignment).<BR>" + "Disable packing when Reverse Engineering composite.   " +
+				"<font color=\"" + Palette.BLUE.toHexString() +
+				"\" size=\"-2\">(&lt;F1&gt; for help)</font></html>";
 		packingEnablementButton.addActionListener(e -> {
+
+			// When turning this on, warn the use.  This prevents accidental enablement 
+			// destructively changing the structure. 
+			if (packingEnablementButton.isSelected()) {
+				if (!choosePacking()) {
+					Swing.runLater(() -> packingEnablementButton.setSelected(false));
+					return;
+				}
+			}
+
 			((CompEditorModel) model).setPackingType(
 				packingEnablementButton.isSelected() ? PackingType.DEFAULT : PackingType.DISABLED,
 				-1);
 		});
 
 		packingEnablementButton.setToolTipText(packingToolTipText);
-		if (helpManager != null) {
-			helpManager.registerHelp(packingEnablementButton,
-				new HelpLocation(provider.getHelpTopic(), provider.getHelpName() + "_" + "Pack"));
-		}
+
+		provider.registerHelp(packingEnablementButton, "Pack");
 	}
 
 	private void setupDefaultPackingButton() {
 		defaultPackingButton.setName("Default Packing");
 		String packingToolTipText =
-			"<HTML>Indicates <B>default</B> compiler packing rules should be applied.</HTML>";
+			"<html>Indicates <B>default</B> compiler packing rules should be applied.</html>";
 
 		defaultPackingButton.addActionListener(e -> {
 			((CompEditorModel) model).setPackingType(PackingType.DEFAULT, -1);
 		});
 
 		defaultPackingButton.setToolTipText(packingToolTipText);
-		if (helpManager != null) {
-			helpManager.registerHelp(defaultPackingButton, new HelpLocation(provider.getHelpTopic(),
-				provider.getHelpName() + "_" + "Pack"));
-		}
+		provider.registerHelp(defaultPackingButton, "Pack");
 	}
 
 	private void setupExplicitPackingButton() {
 		explicitPackingButton.setName("Explicit Packing");
 		String packingToolTipText =
-			"<HTML>Indicates an explicit pack size should be applied.</HTML>";
+			"<html>Indicates an explicit pack size should be applied.</html>";
 
-		explicitPackingButton.addActionListener(e -> chooseByValuePacking());
 		explicitPackingButton.setToolTipText(packingToolTipText);
-		if (helpManager != null) {
-			helpManager.registerHelp(explicitPackingButton, new HelpLocation(provider.getHelpTopic(),
-				provider.getHelpName() + "_" + "Pack"));
-		}
+
+		// As a convenience, when this radio button is focused, change focus to the editor field
+		explicitPackingButton.addFocusListener(new FocusAdapter() {
+			@Override
+			public void focusGained(FocusEvent e) {
+				explicitPackingTextField.requestFocus();
+			}
+		});
+		explicitPackingButton.addActionListener(e -> chooseByValuePacking());
+		provider.registerHelp(explicitPackingButton, "Pack");
 
 		explicitPackingTextField.setName("Packing Value");
 		explicitPackingTextField.setEditable(true);
 		explicitPackingTextField.addActionListener(e -> adjustPackingValue());
+		explicitPackingTextField.addKeyListener(
+			new UpAndDownKeyListener(defaultPackingButton, defaultPackingButton));
 
 		explicitPackingTextField.addFocusListener(new FocusListener() {
 			@Override
@@ -733,10 +764,8 @@ public class CompEditorPanel extends CompositeEditorPanel {
 		});
 
 		explicitPackingTextField.setToolTipText(packingToolTipText);
-		if (helpManager != null) {
-			helpManager.registerHelp(explicitPackingTextField, new HelpLocation(
-				provider.getHelpTopic(), provider.getHelpName() + "_" + "Pack"));
-		}
+
+		provider.registerHelp(explicitPackingTextField, "Pack");
 	}
 
 	private void chooseByValuePacking() {
@@ -825,13 +854,14 @@ public class CompEditorPanel extends CompositeEditorPanel {
 
 	protected void setSizeEditable(boolean editable) {
 		sizeTextField.setEditable(editable);
+		sizeTextField.setEnabled(editable);
 		if (editable) {
-			// editable - use same background as category field
+			// editable - use same background as description field
 			sizeTextField.setBackground(descriptionTextField.getBackground());
 		}
 		else {
 			// not editable - use same background as panel
-			sizeTextField.setBackground(new Color(getBackground().getRGB()));
+			sizeTextField.setBackground(getBackground());
 		}
 	}
 
@@ -971,8 +1001,7 @@ public class CompEditorPanel extends CompositeEditorPanel {
 			if (viewComposite.isPackingEnabled()) {
 				defaultValue = viewComposite.getDataOrganization().getMachineAlignment();
 			}
-			((CompEditorModel) model).setAlignmentType(AlignmentType.EXPLICIT,
-				defaultValue);
+			((CompEditorModel) model).setAlignmentType(AlignmentType.EXPLICIT, defaultValue);
 		}
 		explicitAlignTextField.selectAll();
 		explicitAlignTextField.requestFocus();
@@ -1064,7 +1093,7 @@ public class CompEditorPanel extends CompositeEditorPanel {
 
 	/**
 	 * Sets the currently displayed structure category name.
-	 * 
+	 *
 	 * @param name
 	 *            the new category name
 	 */
@@ -1082,7 +1111,7 @@ public class CompEditorPanel extends CompositeEditorPanel {
 
 	/**
 	 * Sets the currently displayed structure name in the edit area.
-	 * 
+	 *
 	 * @param name
 	 *            the new name
 	 */
@@ -1107,7 +1136,7 @@ public class CompEditorPanel extends CompositeEditorPanel {
 
 	/**
 	 * Sets the currently displayed structure description.
-	 * 
+	 *
 	 * @param description
 	 *            the new description
 	 */
@@ -1156,7 +1185,7 @@ public class CompEditorPanel extends CompositeEditorPanel {
 
 	/**
 	 * Sets the currently displayed composite's size.
-	 * 
+	 *
 	 * @param size the new size
 	 */
 	public void setCompositeSize(int size) {
@@ -1212,8 +1241,46 @@ public class CompEditorPanel extends CompositeEditorPanel {
 
 	@Override
 	public void showUndefinedStateChanged(boolean showUndefinedBytes) {
-		// TODO Auto-generated method stub
+		// stub
+	}
 
+	/**
+	 * A simple class that allows clients to focus other components when the up or down arrows keys
+	 * are pressed
+	 */
+	private class UpAndDownKeyListener extends KeyAdapter {
+
+		private JRadioButton previousComponent;
+		private JRadioButton nextComponent;
+
+		UpAndDownKeyListener(JRadioButton previousComponent, JRadioButton nextComponent) {
+			this.previousComponent = previousComponent;
+			this.nextComponent = nextComponent;
+		}
+
+		@Override
+		public void keyPressed(KeyEvent e) {
+
+			if (e.isConsumed()) {
+				return;
+			}
+
+			int code = e.getKeyCode();
+			if (code == KeyEvent.VK_UP) {
+				// We need to run later due to focusLost() listener on the text field that will 
+				// interfere with the selected state of our newly selected button
+				previousComponent.requestFocusInWindow();
+				Swing.runLater(() -> previousComponent.setSelected(true));
+				e.consume();
+			}
+			else if (code == KeyEvent.VK_DOWN) {
+				// We need to run later due to focusLost() listener on the text field that will 
+				// interfere with the selected state of our newly selected button
+				nextComponent.requestFocusInWindow();
+				Swing.runLater(() -> nextComponent.setSelected(true));
+				e.consume();
+			}
+		}
 	}
 
 }

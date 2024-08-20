@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,8 +25,10 @@ import ghidra.framework.plugintool.PluginTool;
 import ghidra.util.HelpLocation;
 
 /**
- * CompositeEditorAction is an abstract class that should be extended for any
- * action that is to be associated with a composite editor.
+ * CompositeEditorAction is an abstract class that should be extended for any action that is to be 
+ * associated with a composite editor.
+ * <p>
+ * Note: Any new actions must be registered in the editor manager via the actions's name.
  */
 abstract public class CompositeEditorTableAction extends DockingAction implements EditorAction {
 
@@ -42,13 +44,17 @@ abstract public class CompositeEditorTableAction extends DockingAction implement
 	protected Plugin plugin;
 	protected PluginTool tool;
 
-	public static final String EDIT_ACTION_PREFIX = "Editor: ";
+	// note: Only call this constructor if you know you do not want to use the shared editor prefix;
+	//       If you call this, then you must manage your own menu/popup/toolbar data installation
+	protected CompositeEditorTableAction(CompositeEditorProvider provider, String name) {
+		super(name, provider.plugin.getName());
+		init(provider);
+	}
 
 	public CompositeEditorTableAction(CompositeEditorProvider provider, String name, String group,
 			String[] popupPath, String[] menuPath, Icon icon) {
 		super(name, provider.plugin.getName(), KeyBindingType.SHARED);
-		this.provider = provider;
-		model = provider.getModel();
+		init(provider);
 		if (menuPath != null) {
 			setMenuBarData(new MenuData(menuPath, icon, group));
 		}
@@ -58,6 +64,11 @@ abstract public class CompositeEditorTableAction extends DockingAction implement
 		if (icon != null) {
 			setToolBarData(new ToolBarData(icon, group));
 		}
+	}
+
+	private void init(CompositeEditorProvider editorProvider) {
+		this.provider = editorProvider;
+		this.model = provider.getModel();
 		this.plugin = provider.plugin;
 		this.tool = plugin.getTool();
 		model.addCompositeEditorModelListener(this);
@@ -76,15 +87,8 @@ abstract public class CompositeEditorTableAction extends DockingAction implement
 	}
 
 	protected void requestTableFocus() {
-		if (provider == null) {
-			return; // must have been disposed
-		}
-		JTable table = ((CompositeEditorPanel) provider.getComponent()).getTable();
-		if (table.isEditing()) {
-			table.getEditorComponent().requestFocus();
-		}
-		else {
-			table.requestFocus();
+		if (provider != null) {
+			provider.requestTableFocus();
 		}
 	}
 
@@ -92,12 +96,7 @@ abstract public class CompositeEditorTableAction extends DockingAction implement
 	abstract public void adjustEnablement();
 
 	public String getHelpName() {
-		String actionName = getName();
-		if (actionName.startsWith(CompositeEditorTableAction.EDIT_ACTION_PREFIX)) {
-			actionName =
-				actionName.substring(CompositeEditorTableAction.EDIT_ACTION_PREFIX.length());
-		}
-		return actionName;
+		return getName();
 	}
 
 	@Override

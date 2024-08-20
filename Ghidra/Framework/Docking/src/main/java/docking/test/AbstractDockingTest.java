@@ -23,6 +23,7 @@ import java.awt.event.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import java.net.URL;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -48,8 +49,9 @@ import docking.widgets.filechooser.GhidraFileChooser;
 import docking.widgets.table.threaded.ThreadedTableModel;
 import docking.widgets.tree.GTree;
 import docking.widgets.tree.GTreeNode;
-import generic.test.AbstractGenericTest;
+import generic.test.AbstractGuiTest;
 import generic.test.ConcurrentTestExceptionHandler;
+import generic.theme.GIcon;
 import generic.util.image.ImageUtils;
 import ghidra.GhidraTestApplicationLayout;
 import ghidra.framework.ApplicationConfiguration;
@@ -58,11 +60,12 @@ import ghidra.util.exception.AssertException;
 import ghidra.util.task.SwingUpdateManager;
 import ghidra.util.worker.Worker;
 import junit.framework.AssertionFailedError;
+import resources.icons.UrlImageIcon;
 import sun.awt.AppContext;
 import util.CollectionUtils;
 import utility.application.ApplicationLayout;
 
-public abstract class AbstractDockingTest extends AbstractGenericTest {
+public abstract class AbstractDockingTest extends AbstractGuiTest {
 
 	static {
 		ConcurrentTestExceptionHandler.registerHandler();
@@ -76,8 +79,6 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 		new TestFailingErrorDisplayWrapper();
 
 	public AbstractDockingTest() {
-		super();
-
 		installNonNativeSystemClipboard();
 	}
 
@@ -110,13 +111,8 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 	}
 
 	@Override
-	protected ApplicationLayout createApplicationLayout() {
-		try {
-			return new GhidraTestApplicationLayout(new File(getTestDirectoryPath()));
-		}
-		catch (IOException e) {
-			throw new AssertException(e);
-		}
+	protected ApplicationLayout createApplicationLayout() throws IOException {
+		return new GhidraTestApplicationLayout(new File(getTestDirectoryPath()));
 	}
 
 	@Override
@@ -153,9 +149,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 
 	public static Window getWindowByTitleContaining(Window parentWindow, String text) {
 		Set<Window> winList = getWindows(parentWindow);
-		Iterator<Window> iter = winList.iterator();
-		while (iter.hasNext()) {
-			Window w = iter.next();
+		for (Window w : winList) {
 			if (!w.isShowing()) {
 				continue;
 			}
@@ -173,9 +167,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 
 	protected static Window getWindowByTitle(Window parentWindow, String title) {
 		Set<Window> winList = getWindows(parentWindow);
-		Iterator<Window> iter = winList.iterator();
-		while (iter.hasNext()) {
-			Window w = iter.next();
+		for (Window w : winList) {
 			if (!w.isShowing()) {
 				continue;
 			}
@@ -216,9 +208,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 		while (totalTime <= timeout) {
 
 			Set<Window> winList = getAllWindows();
-			Iterator<Window> it = winList.iterator();
-			while (it.hasNext()) {
-				Window w = it.next();
+			for (Window w : winList) {
 				if (windowClass.isAssignableFrom(w.getClass()) && w.isShowing()) {
 					return w;
 				}
@@ -445,7 +435,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 	/**
 	 * A convenience method to close all of the windows and frames that the current Java
 	 * windowing environment knows about
-	 * 
+	 *
 	 * @deprecated instead call the new {@link #closeAllWindows()}
 	 */
 	@Deprecated
@@ -503,9 +493,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 		while (totalTime <= DEFAULT_WINDOW_TIMEOUT) {
 
 			Set<Window> winList = getAllWindows();
-			Iterator<Window> iter = winList.iterator();
-			while (iter.hasNext()) {
-				Window w = iter.next();
+			for (Window w : winList) {
 				if ((w instanceof JDialog) && w.isShowing()) {
 					String windowTitle = getTitleForWindow(w);
 					if (title.equals(windowTitle)) {
@@ -538,9 +526,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 		while (totalTime <= DEFAULT_WAIT_TIMEOUT) {
 
 			Set<Window> winList = getWindows(window);
-			Iterator<Window> iter = winList.iterator();
-			while (iter.hasNext()) {
-				Window w = iter.next();
+			for (Window w : winList) {
 				if ((w instanceof JDialog) && w.isShowing()) {
 					String windowTitle = getTitleForWindow(w);
 					if (title.equals(windowTitle)) {
@@ -641,9 +627,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 	private static <T extends DialogComponentProvider> T getDialogComponent(Window parentWindow,
 			Class<T> ghidraClass) {
 		Set<Window> winList = getWindows(parentWindow);
-		Iterator<Window> iter = winList.iterator();
-		while (iter.hasNext()) {
-			Window w = iter.next();
+		for (Window w : winList) {
 			DialogComponentProvider dialogComponentProvider =
 				getDialogComponentProvider(w, ghidraClass);
 			if (dialogComponentProvider != null) {
@@ -727,11 +711,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 		}
 
 		T t = windowManager.getComponentProvider(clazz);
-		if (t != null) {
-			return t;
-		}
-
-		return null;
+		return t;
 	}
 
 	/**
@@ -961,9 +941,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 				// So, just ignore the exception.  Client code that *really* wants all windows,
 				// like that which waits for windows, should be calling this method repeatedly anyway.
 			}
-			Iterator<Window> iter = dockableWinList.iterator();
-			while (iter.hasNext()) {
-				Window w = iter.next();
+			for (Window w : dockableWinList) {
 				windowSet.add(w);
 				findOwnedWindows(w, windowSet);
 			}
@@ -1167,10 +1145,10 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 	 * If you do not know the owner name, then use
 	 * the call {@link #getActionsByName(Tool, String)} instead  (this will not include
 	 * reserved system actions).
-	 * 
+	 *
 	 * <P>Note: more specific test case subclasses provide other methods for finding actions
 	 * when you have an owner name (which is usually the plugin name).
-	 * 
+	 *
 	 * @param tool the tool containing all system actions
 	 * @param owner the owner of the action
 	 * @param name the name to match
@@ -1193,7 +1171,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 
 	/**
 	 * Returns the action by the given name that belongs to the given provider
-	 * 
+	 *
 	 * @param provider the provider
 	 * @param actionName the action name
 	 * @return the action
@@ -1249,7 +1227,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 	public static void performAction(DockingActionIf action, boolean waitForCompletion) {
 
 		ActionContext context = runSwing(() -> {
-			ActionContext actionContext = new ActionContext();
+			ActionContext actionContext = new DefaultActionContext();
 			DockingWindowManager activeInstance = DockingWindowManager.getActiveInstance();
 			if (activeInstance == null) {
 				return actionContext;
@@ -1291,7 +1269,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 
 		}, waitForCompletion);
 
-		if (!SwingUtilities.isEventDispatchThread()) {
+		if (!Swing.isSwingThread()) {
 			waitForSwing();
 		}
 	}
@@ -1310,7 +1288,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 			boolean wait) {
 
 		ActionContext context = runSwing(() -> {
-			ActionContext actionContext = new ActionContext();
+			ActionContext actionContext = new DefaultActionContext();
 			if (provider == null) {
 				return actionContext;
 			}
@@ -1404,17 +1382,33 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 	 * component with the specified name.
 	 *
 	 * @param provider the provider of the component to search
-	 * @param componentName the name of the desired component
+	 * @param name the name of the desired component
 	 *
 	 * @return the component, or null if not found
 	 */
-	public static Component findComponentByName(DialogComponentProvider provider,
-			String componentName) {
-		return findComponentByName(provider.getComponent(), componentName, false);
+	public static Component findComponentByName(DialogComponentProvider provider, String name) {
+		return findComponentByName(provider.getComponent(), name, false);
 	}
 
 	public static JButton findButtonByText(DialogComponentProvider provider, String text) {
 		return findButtonByText(provider.getComponent(), text);
+	}
+
+	/**
+	 * Searches the component and subcomponents of the indicated provider and returns the
+	 * component with the specified name.
+	 *
+	 * @param provider the provider of the component to search
+	 * @param name the name of the desired component
+	 *
+	 * @return the component, or null if not found
+	 */
+	public static AbstractButton findButtonByName(DialogComponentProvider provider, String name) {
+		Component c = findComponentByName(provider, name);
+		if (!(c instanceof AbstractButton button)) {
+			return null;
+		}
+		return button;
 	}
 
 	public static JButton findButtonByIcon(DialogComponentProvider provider, Icon icon) {
@@ -1485,7 +1479,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 
 	/**
 	 * Simulates a user initiated keystroke using the keybinding of the given action
-	 * 
+	 *
 	 * @param destination the component for the action being executed
 	 * @param action The action to simulate pressing
 	 */
@@ -1717,7 +1711,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 	 * Fires a {@link KeyListener#keyPressed(KeyEvent)},
 	 * {@link KeyListener#keyTyped(KeyEvent)}
 	 * and {@link KeyListener#keyReleased(KeyEvent)} for the given key stroke
-	 * 
+	 *
 	 * @param c the destination component
 	 * @param ks the key stroke
 	 */
@@ -1750,8 +1744,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 		Objects.requireNonNull(c);
 		Objects.requireNonNull(consumer);
 
-		if (c instanceof JTextComponent) {
-			JTextComponent tf = (JTextComponent) c;
+		if (c instanceof JTextComponent tf) {
 			forceTextComponentFocus(tf);
 		}
 
@@ -2121,7 +2114,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 
 			if (waitTime >= DEFAULT_WAIT_TIMEOUT) {
 				createStackTraceForAllThreads(); // this may help debug indecent table models
-				throw new AssertException("Timed out waiting for table model to load");
+				throw new AssertException("Timed out waiting for tree to load");
 			}
 		}
 		waitForSwing();
@@ -2138,11 +2131,10 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 	}
 
 	public static boolean isEnabled(DockingActionIf action) {
-		return runSwing(() -> action.isEnabledForContext(new ActionContext()));
+		return runSwing(() -> action.isEnabledForContext(new DefaultActionContext()));
 	}
 
-	public static boolean isEnabled(DockingActionIf action,
-			ActionContextProvider contextProvider) {
+	public static boolean isEnabled(DockingActionIf action, ActionContextProvider contextProvider) {
 		return runSwing(() -> action.isEnabledForContext(contextProvider.getActionContext(null)));
 	}
 
@@ -2160,7 +2152,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 	 * @return the new context
 	 */
 	public ActionContext createContext(Object contextObject) {
-		return new ActionContext().setContextObject(contextObject);
+		return new DefaultActionContext().setContextObject(contextObject);
 	}
 
 	/**
@@ -2170,7 +2162,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 	 * @return the new context
 	 */
 	public ActionContext createContext(ComponentProvider provider, Object contextObject) {
-		return new ActionContext(provider).setContextObject(contextObject);
+		return new DefaultActionContext(provider).setContextObject(contextObject);
 	}
 
 //==================================================================================================
@@ -2226,7 +2218,9 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 	 */
 	public static Image createScreenImage(Component c) throws AWTException {
 
-		yieldToSwing();
+		if (!Swing.isSwingThread()) {
+			yieldToSwing();
+		}
 
 		Rectangle r = c.getBounds();
 		Point p = r.getLocation();
@@ -2243,7 +2237,9 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 
 	public static Image createRenderedImage(Component c) {
 
-		yieldToSwing();
+		if (!Swing.isSwingThread()) {
+			yieldToSwing();
+		}
 
 		Image i = runSwing(() -> {
 			try {
@@ -2277,4 +2273,39 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 		ImageUtils.writeFile(image, imageFile);
 		Msg.info(AbstractDockingTest.class, "Wrote image to " + imageFile.getCanonicalPath());
 	}
+
+	/**
+	 * Asserts that the two icons are or refer to the same icon (handles GIcon)
+	 * @param expected the expected icon
+	 * @param actual the actual icon
+	 */
+	public void assertIconsEqual(Icon expected, Icon actual) {
+		if (expected.equals(actual)) {
+			return;
+		}
+		URL url1 = getURL(expected);
+		URL url2 = getURL(actual);
+
+		if (url1 != null && url1.equals(url2)) {
+			return;
+		}
+		fail("Expected icon [" + expected.getClass().getSimpleName() + "]" + expected.toString() +
+			", but got: [" + actual.getClass().getSimpleName() + "]" + actual.toString());
+	}
+
+	/**
+	 * Gets the URL for the given icon
+	 * @param icon the icon to get a URL for
+	 * @return the URL for the given icon
+	 */
+	public URL getURL(Icon icon) {
+		if (icon instanceof UrlImageIcon urlIcon) {
+			return urlIcon.getUrl();
+		}
+		if (icon instanceof GIcon gIcon) {
+			return gIcon.getUrl();
+		}
+		return null;
+	}
+
 }

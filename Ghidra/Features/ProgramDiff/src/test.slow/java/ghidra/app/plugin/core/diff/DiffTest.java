@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,6 +20,7 @@ import static org.junit.Assert.*;
 import java.awt.Color;
 import java.awt.Window;
 import java.math.BigInteger;
+import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -28,21 +29,20 @@ import javax.swing.tree.TreePath;
 
 import org.junit.Test;
 
-import docking.ActionContext;
-import docking.DialogComponentProvider;
+import docking.*;
 import docking.action.DockingActionIf;
 import docking.widgets.fieldpanel.FieldPanel;
 import docking.widgets.fieldpanel.support.FieldLocation;
+import docking.widgets.tab.GTabPanel;
 import ghidra.app.cmd.data.CreateDataCmd;
 import ghidra.app.events.ProgramLocationPluginEvent;
 import ghidra.app.events.ProgramSelectionPluginEvent;
-import ghidra.app.plugin.core.progmgr.MultiTabPanel;
 import ghidra.app.plugin.core.progmgr.MultiTabPlugin;
 import ghidra.app.util.viewer.field.OpenCloseField;
 import ghidra.app.util.viewer.listingpanel.ListingModel;
-import ghidra.framework.plugintool.Plugin;
 import ghidra.program.database.ProgramBuilder;
 import ghidra.program.database.ProgramDB;
+import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.data.ArrayDataType;
 import ghidra.program.model.data.WordDataType;
@@ -428,7 +428,7 @@ public class DiffTest extends DiffTestAdapter {
 
 		// Replace view with .data
 		selectTreeNodeByText(tree, ".data");
-		invokeAndWait(replaceView);
+		setView();
 		topOfFile(fp1);
 		assertEquals(addr("1008000"), cb.getCurrentAddress());
 		bottomOfFile(fp1);
@@ -436,7 +436,7 @@ public class DiffTest extends DiffTestAdapter {
 
 		// Replace with program view
 		selectTreeNodeByText(tree, "DiffTestPgm1");
-		invokeAndWait(replaceView);
+		setView();
 		topOfFile(fp1);
 		assertEquals(addr("100"), cb.getCurrentAddress());
 		bottomOfFile(fp1);
@@ -455,8 +455,7 @@ public class DiffTest extends DiffTestAdapter {
 		openDiff(diffTestP1, diffTestP2);
 		JTree tree = getProgramTree();
 		selectTreeNodeByText(tree, ".data");
-
-		runSwing(() -> replaceView.actionPerformed(new ActionContext()));
+		setView();
 
 		topOfFile(fp1);
 		assertEquals(addr("1008000"), cb.getCurrentAddress());
@@ -482,11 +481,11 @@ public class DiffTest extends DiffTestAdapter {
 		JTree tree = getProgramTree();
 		selectTreeNodeByText(tree, ".data");
 
-		runSwing(() -> replaceView.actionPerformed(new ActionContext()));
+		runSwing(() -> setView.actionPerformed(programTreeProvider.getActionContext(null)));
 
 		selectTreeNodeByText(tree, ".rsrc");
 
-		runSwing(() -> goToView.actionPerformed(new ActionContext()));
+		runSwing(() -> goToView.actionPerformed(programTreeProvider.getActionContext(null)));
 
 		topOfFile(fp1);
 		assertEquals(addr("1008000"), cb.getCurrentAddress());
@@ -550,7 +549,8 @@ public class DiffTest extends DiffTestAdapter {
 		openDiff(diffTestP1, diffTestP2);
 		JTree tree = getProgramTree();
 		selectTreeNodeByText(tree, "DiffTestPgm1");
-		performAction(removeView, true);
+		ActionContext context = runSwing(() -> programTreeProvider.getActionContext(null));
+		performAction(removeView, context, true);
 		AddressSet viewSet = new AddressSet();
 		assertEquals(viewSet, cb.getView());
 		topOfFile(fp1);
@@ -642,7 +642,7 @@ public class DiffTest extends DiffTestAdapter {
 		builder4.createMemory(".data", "0x1008000", 0x600);
 		ProgramDB program4 = builder4.getProgram();
 
-		tool.removePlugins(new Plugin[] { pt });
+		tool.removePlugins(Arrays.asList(pt));
 		tool.addPlugin(MultiTabPlugin.class.getName());
 		openProgram(program3);
 		openProgram(program4);
@@ -653,13 +653,13 @@ public class DiffTest extends DiffTestAdapter {
 		ProgramSelection expectedSelection = new ProgramSelection(getSetupAllDiffsSet());
 		checkIfSameSelection(expectedSelection, diffPlugin.getDiffHighlightSelection());
 
-		MultiTabPanel panel = findComponent(tool.getToolFrame(), MultiTabPanel.class);
+		GTabPanel<Program> panel = getTabPanel();
 
 		assertEquals(true, isDiffing());
 		assertEquals(true, isShowingDiff());
 		// Check action enablement.
 		checkDiffAction("View Program Differences", true, true);
-		checkDiffAction("Open/Close Program View", true, true);
+		checkDiffAction("Open/Close Diff View", true, true);
 		checkDiffAction("Apply Differences", true, false);
 		checkDiffAction("Apply Differences and Goto Next Difference", true, false);
 		checkDiffAction("Ignore Selection and Goto Next Difference", true, false);
@@ -762,7 +762,7 @@ public class DiffTest extends DiffTestAdapter {
 		builder4.createMemory(".data", "0x1008000", 0x600);
 		ProgramDB program4 = builder4.getProgram();
 
-		tool.removePlugins(new Plugin[] { pt });
+		tool.removePlugins(Arrays.asList(pt));
 		tool.addPlugin(MultiTabPlugin.class.getName());
 		openProgram(program3);
 		openProgram(program4);
@@ -773,17 +773,17 @@ public class DiffTest extends DiffTestAdapter {
 		ProgramSelection expectedSelection = new ProgramSelection(getSetupAllDiffsSet());
 		checkIfSameSelection(expectedSelection, diffPlugin.getDiffHighlightSelection());
 
-		MultiTabPanel panel = findComponent(tool.getToolFrame(), MultiTabPanel.class);
+		GTabPanel<Program> panel = getTabPanel();
 
 		assertEquals(true, isDiffing());
 		assertEquals(true, isShowingDiff());
-		checkDiffAction("Open/Close Program View", true, true);
+		checkDiffAction("Open/Close Diff View", true, true);
 
 		//
 		// Different tab--still enabled
 		//
 		selectTab(panel, program3);
-		checkDiffAction("Open/Close Program View", true, true);
+		checkDiffAction("Open/Close Diff View", true, true);
 
 		clickDiffButton();
 		assertTrue("Not diffing after clicking the diff button when on a non-diff tab",
@@ -794,7 +794,7 @@ public class DiffTest extends DiffTestAdapter {
 		//
 		// Diff tab--still enabled
 		//
-		checkDiffAction("Open/Close Program View", true, true);
+		checkDiffAction("Open/Close Diff View", true, true);
 
 		clickDiffButton();
 
@@ -824,32 +824,40 @@ public class DiffTest extends DiffTestAdapter {
 
 		Data data = diffTestP1.getListing().getDataAt(addr("0x00000106"));
 		ListingModel listingModel = cb.getListingModel();
-		cb.goToField(addr("0x00000106"), "+", 0, 0);
+		goTo(addr("0x00000106"), "+");
 		assertTrue(cb.getCurrentField() instanceof OpenCloseField);
 		assertFalse("Array is not closed as expected.", listingModel.isOpen(data));
-		cb.goToField(addr("0x00000120"), "Address", 0, 0);
+		goTo(addr("0x00000120"), "Address");
 		assertEquals("00000120", cb.getCurrentFieldText());
-		cb.goToField(addr("0x00000106"), "Address", 0, 0);
+		goTo(addr("0x00000106"), "Address");
 		assertEquals("00000106", cb.getCurrentFieldText());
 
-		cb.goToField(addr("0x00000106"), "+", 0, 0);
+		goTo(addr("0x00000106"), "+");
 		click(cb, 1);
 		waitForSwing();
 		assertTrue("Array failed to open.", listingModel.isOpen(data));
 
-		cb.goToField(addr("0x00000106"), "+", 0, 0);
+		goTo(addr("0x00000106"), "+");
 		click(cb, 1);
 		waitForSwing();
-		cb.goToField(addr("0x00000120"), "Address", 0, 0);
-		cb.goToField(addr("0x00000106"), "Address", 0, 0);
+		goTo(addr("0x00000120"), "Address");
+		goTo(addr("0x00000106"), "Address");
 		assertEquals("00000106", cb.getCurrentFieldText());
 		assertFalse("Array failed to close.", listingModel.isOpen(data));
+	}
 
+	private void goTo(Address a, String fieldName) {
+		cb.goToField(a, fieldName, 0, 0);
+		waitForSwing();
 	}
 
 //==================================================================================================
 // Private Methods
 //==================================================================================================	
+	@SuppressWarnings("unchecked")
+	private GTabPanel<Program> getTabPanel() {
+		return findComponent(tool.getToolFrame(), GTabPanel.class);
+	}
 
 	private Color getBgColor(FieldPanel fp, BigInteger index) {
 		return runSwing(() -> fp.getBackgroundColor(index));
@@ -874,7 +882,7 @@ public class DiffTest extends DiffTestAdapter {
 	private void clickDiffButton() {
 		runSwing(() -> {
 			openClosePgm2.setSelected(!openClosePgm2.isSelected());
-			openClosePgm2.actionPerformed(new ActionContext());
+			openClosePgm2.actionPerformed(new DefaultActionContext());
 		}, false);
 		waitForSwing();
 	}
@@ -930,9 +938,8 @@ public class DiffTest extends DiffTestAdapter {
 		return true;
 	}
 
-	private void selectTab(final MultiTabPanel panel, final Program pgm) {
-		runSwing(() -> invokeInstanceMethod("setSelectedProgram", panel,
-			new Class[] { Program.class }, new Object[] { pgm }), true);
+	private void selectTab(GTabPanel<Program> panel, Program pgm) {
+		runSwing(() -> panel.selectTab(pgm));
 		waitForSwing();
 	}
 

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -29,6 +29,11 @@ import ghidra.dbg.util.PathMatcher;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressRange;
 
+/**
+ * @deprecated This will be moved/refactored into trace database. In general, it will still exist,
+ *             but things depending on it are now back on shifting sand.
+ */
+@Deprecated(since = "11.2")
 public enum EnumerableTargetObjectSchema implements TargetObjectSchema {
 	/**
 	 * The top-most type descriptor
@@ -36,7 +41,7 @@ public enum EnumerableTargetObjectSchema implements TargetObjectSchema {
 	 * <p>
 	 * The described value can be any primitive or a {@link TargetObject}.
 	 */
-	ANY("ANY", Object.class) {
+	ANY(Object.class) {
 		@Override
 		public SchemaName getDefaultElementSchema() {
 			return OBJECT.getName();
@@ -45,6 +50,11 @@ public enum EnumerableTargetObjectSchema implements TargetObjectSchema {
 		@Override
 		public AttributeSchema getDefaultAttributeSchema() {
 			return AttributeSchema.DEFAULT_ANY;
+		}
+
+		@Override
+		public boolean isAssignableFrom(TargetObjectSchema that) {
+			return true;
 		}
 	},
 	/**
@@ -53,7 +63,7 @@ public enum EnumerableTargetObjectSchema implements TargetObjectSchema {
 	 * <p>
 	 * This requires nothing more than the described value to be a {@link TargetObject}.
 	 */
-	OBJECT("OBJECT", TargetObject.class) {
+	OBJECT(TargetObject.class) {
 		@Override
 		public SchemaName getDefaultElementSchema() {
 			return OBJECT.getName();
@@ -63,7 +73,14 @@ public enum EnumerableTargetObjectSchema implements TargetObjectSchema {
 		public AttributeSchema getDefaultAttributeSchema() {
 			return AttributeSchema.DEFAULT_ANY;
 		}
+
+		@Override
+		public boolean isAssignableFrom(TargetObjectSchema that) {
+			// That is has as schema implies it's a TargetObject
+			return true;
+		}
 	},
+	TYPE(Class.class),
 	/**
 	 * A type so restrictive nothing can satisfy it.
 	 * 
@@ -72,22 +89,32 @@ public enum EnumerableTargetObjectSchema implements TargetObjectSchema {
 	 * the default attribute when only certain enumerated attributes are allowed. It is also used as
 	 * the type for the children of primitives, since primitives cannot have successors.
 	 */
-	VOID("VOID", Void.class, void.class),
-	BOOL("BOOL", Boolean.class, boolean.class),
-	BYTE("BYTE", Byte.class, byte.class),
-	SHORT("SHORT", Short.class, short.class),
-	INT("INT", Integer.class, int.class),
-	LONG("LONG", Long.class, long.class),
-	STRING("STRING", String.class),
-	ADDRESS("ADDRESS", Address.class),
-	RANGE("RANGE", AddressRange.class),
-	DATA_TYPE("DATA_TYPE", TargetDataType.class),
-	LIST_OBJECT("LIST_OBJECT", TargetObjectList.class),
-	MAP_PARAMETERS("MAP_PARAMETERS", TargetParameterMap.class),
-	SET_ATTACH_KIND("SET_ATTACH_KIND", TargetAttachKindSet.class), // TODO: Limited built-in generics
-	SET_BREAKPOINT_KIND("SET_BREAKPOINT_KIND", TargetBreakpointKindSet.class),
-	SET_STEP_KIND("SET_STEP_KIND", TargetStepKindSet.class),
-	EXECUTION_STATE("EXECUTION_STATE", TargetExecutionState.class);
+	VOID(Void.class, void.class),
+	BOOL(Boolean.class, boolean.class),
+	BYTE(Byte.class, byte.class),
+	SHORT(Short.class, short.class),
+	INT(Integer.class, int.class),
+	LONG(Long.class, long.class),
+	STRING(String.class),
+	ADDRESS(Address.class),
+	RANGE(AddressRange.class),
+	DATA_TYPE(TargetDataType.class),
+	// TODO: Limited built-in generics?
+	LIST_OBJECT(TargetObjectList.class),
+	MAP_PARAMETERS(TargetParameterMap.class),
+	SET_ATTACH_KIND(TargetAttachKindSet.class),
+	SET_BREAKPOINT_KIND(TargetBreakpointKindSet.class),
+	SET_STEP_KIND(TargetStepKindSet.class),
+	EXECUTION_STATE(TargetExecutionState.class),
+	// Additional types supported by the Trace database
+	CHAR(Character.class, char.class),
+	BOOL_ARR(boolean[].class),
+	BYTE_ARR(byte[].class),
+	CHAR_ARR(char[].class),
+	SHORT_ARR(short[].class),
+	INT_ARR(int[].class),
+	LONG_ARR(long[].class),
+	STRING_ARR(String[].class);
 
 	public static final class MinimalSchemaContext extends DefaultSchemaContext {
 		public static final SchemaContext INSTANCE = new MinimalSchemaContext();
@@ -126,8 +153,8 @@ public enum EnumerableTargetObjectSchema implements TargetObjectSchema {
 	private final SchemaName name;
 	private final List<Class<?>> types;
 
-	private EnumerableTargetObjectSchema(String name, Class<?>... types) {
-		this.name = new SchemaName(name);
+	private EnumerableTargetObjectSchema(Class<?>... types) {
+		this.name = new SchemaName(this.name());
 		this.types = List.of(types);
 	}
 
@@ -177,6 +204,11 @@ public enum EnumerableTargetObjectSchema implements TargetObjectSchema {
 
 	@Override
 	public Map<String, AttributeSchema> getAttributeSchemas() {
+		return Map.of();
+	}
+
+	@Override
+	public Map<String, String> getAttributeAliases() {
 		return Map.of();
 	}
 

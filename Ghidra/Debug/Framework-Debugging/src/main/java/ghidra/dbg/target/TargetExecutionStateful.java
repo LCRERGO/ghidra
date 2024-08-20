@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,7 +20,10 @@ import ghidra.dbg.target.schema.TargetAttributeType;
 
 /**
  * An object which has an execution life cycle
+ * 
+ * @deprecated Will be removed in 11.3. Portions may be refactored into trace object database.
  */
+@Deprecated(forRemoval = true, since = "11.2")
 @DebuggerTargetObjectIface("ExecutionStateful")
 public interface TargetExecutionStateful extends TargetObject {
 
@@ -37,22 +40,7 @@ public interface TargetExecutionStateful extends TargetObject {
 		 * This may apply, e.g., to a GDB "Inferior," which has no yet been used to launch or attach
 		 * to a process.
 		 */
-		INACTIVE {
-			@Override
-			public boolean isAlive() {
-				return false;
-			}
-
-			@Override
-			public boolean isRunning() {
-				return false;
-			}
-
-			@Override
-			public boolean isStopped() {
-				return false;
-			}
-		},
+		INACTIVE(false, false, false),
 
 		/**
 		 * The object is alive, but its execution state is unspecified
@@ -64,42 +52,12 @@ public interface TargetExecutionStateful extends TargetObject {
 		 * when <em>all</em> of its threads are stopped. For the clients' sakes, all models should
 		 * implement these conventions internally.
 		 */
-		ALIVE {
-			@Override
-			public boolean isAlive() {
-				return true;
-			}
-
-			@Override
-			public boolean isRunning() {
-				return false;
-			}
-
-			@Override
-			public boolean isStopped() {
-				return false;
-			}
-		},
+		ALIVE(true, false, false),
 
 		/**
 		 * The object is alive, but not executing
 		 */
-		STOPPED {
-			@Override
-			public boolean isAlive() {
-				return true;
-			}
-
-			@Override
-			public boolean isRunning() {
-				return false;
-			}
-
-			@Override
-			public boolean isStopped() {
-				return true;
-			}
-		},
+		STOPPED(true, false, true),
 
 		/**
 		 * The object is alive and executing
@@ -109,22 +67,7 @@ public interface TargetExecutionStateful extends TargetObject {
 		 * thread is currently executing, waiting on an event, or scheduled for execution. It does
 		 * not necessarily mean it is executing on a CPU at this exact moment.
 		 */
-		RUNNING {
-			@Override
-			public boolean isAlive() {
-				return true;
-			}
-
-			@Override
-			public boolean isRunning() {
-				return true;
-			}
-
-			@Override
-			public boolean isStopped() {
-				return false;
-			}
-		},
+		RUNNING(true, true, false),
 
 		/**
 		 * The object is no longer alive
@@ -134,43 +77,44 @@ public interface TargetExecutionStateful extends TargetObject {
 		 * stale handles to objects which may still be queried (e.g., for a process exit code), or
 		 * e.g., a GDB "Inferior," which could be re-used to launch or attach to another process.
 		 */
-		TERMINATED {
-			@Override
-			public boolean isAlive() {
-				return false;
-			}
+		TERMINATED(false, false, false);
 
-			@Override
-			public boolean isRunning() {
-				return false;
-			}
+		private final boolean alive;
+		private final boolean running;
+		private final boolean stopped;
 
-			@Override
-			public boolean isStopped() {
-				return false;
-			}
-		};
+		private TargetExecutionState(boolean alive, boolean running, boolean stopped) {
+			this.alive = alive;
+			this.running = running;
+			this.stopped = stopped;
+		}
 
 		/**
 		 * Check if this state implies the object is alive
 		 * 
 		 * @return true if alive
 		 */
-		public abstract boolean isAlive();
+		public boolean isAlive() {
+			return alive;
+		}
 
 		/**
 		 * Check if this state implies the object is running
 		 * 
 		 * @return true if running
 		 */
-		public abstract boolean isRunning();
+		public boolean isRunning() {
+			return running;
+		}
 
 		/**
 		 * Check if this state implies the object is stopped
 		 * 
 		 * @return true if stopped
 		 */
-		public abstract boolean isStopped();
+		public boolean isStopped() {
+			return stopped;
+		}
 	}
 
 	/**
